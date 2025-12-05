@@ -139,8 +139,8 @@ static void html_render(cmark_syntax_extension *extension,
 
   if (entering) {
     cmark_strbuf_puts(renderer->html, open);
-    cmark_html_render_esc_html(renderer, node->as.literal.data,
-                               node->as.literal.len);
+    cmark_strbuf_put(renderer->html, node->as.literal.data,
+                     node->as.literal.len);
   } else {
     cmark_strbuf_puts(renderer->html, close);
   }
