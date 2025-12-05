@@ -3,7 +3,6 @@
 #include <chunk.h>
 #include <parser.h>
 #include <render.h>
-#include <stdbool.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -116,42 +115,40 @@ static int contains_inlines(cmark_syntax_extension *extension,
 static void commonmark_render(cmark_syntax_extension *extension,
                               cmark_renderer *renderer, cmark_node *node,
                               cmark_event_type ev_type, int options) {
-  bool entering = ev_type == CMARK_EVENT_ENTER;
-  const char *delim =
-      node->type == CMARK_NODE_INLINE_FORMULA ? "$" : "$$";
-
-  if (entering) {
-    renderer->out(renderer, node, delim, false, LITERAL);
-  } else {
-    renderer->out(renderer, node, delim, false, LITERAL);
+  if (ev_type != CMARK_EVENT_ENTER) {
+    return;
   }
+
+  const char *delim = node->type == CMARK_NODE_INLINE_FORMULA ? "$" : "$$";
+
+  renderer->out(renderer, node, delim, false, LITERAL);
+  renderer->out(renderer, node, node->as.literal.data, false, LITERAL);
+  renderer->out(renderer, node, delim, false, LITERAL);
 }
 
 static void html_render(cmark_syntax_extension *extension,
                         cmark_html_renderer *renderer, cmark_node *node,
                         cmark_event_type ev_type, int options) {
-  bool entering = (ev_type == CMARK_EVENT_ENTER);
-
-  const char *open =
-      node->type == CMARK_NODE_INLINE_FORMULA ? "\\(" : "\\[";
-  const char *close =
-      node->type == CMARK_NODE_INLINE_FORMULA ? "\\)" : "\\]";
-
-  if (entering) {
-    cmark_strbuf_puts(renderer->html, open);
-    cmark_strbuf_put(renderer->html, node->as.literal.data,
-                     node->as.literal.len);
-  } else {
-    cmark_strbuf_puts(renderer->html, close);
+  if (ev_type != CMARK_EVENT_ENTER) {
+    return;
   }
+
+  const char *open = node->type == CMARK_NODE_INLINE_FORMULA ? "\\(" : "\\[";
+  const char *close = node->type == CMARK_NODE_INLINE_FORMULA ? "\\)" : "\\]";
+
+  cmark_strbuf_puts(renderer->html, open);
+  cmark_strbuf_put(renderer->html, node->as.literal.data, node->as.literal.len);
+  cmark_strbuf_puts(renderer->html, close);
 }
 
 static void plaintext_render(cmark_syntax_extension *extension,
                              cmark_renderer *renderer, cmark_node *node,
                              cmark_event_type ev_type, int options) {
-  if (ev_type == CMARK_EVENT_ENTER) {
-    cmark_renderer_esc(renderer, node->as.literal.data, node->as.literal.len);
+  if (ev_type != CMARK_EVENT_ENTER) {
+    return;
   }
+
+  renderer->out(renderer, node, node->as.literal.data, false, LITERAL);
 }
 
 cmark_syntax_extension *create_formula_extension(void) {
