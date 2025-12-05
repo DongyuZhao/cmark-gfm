@@ -1,4 +1,4 @@
-#include "math.h"
+#include "formula.h"
 
 #include <chunk.h>
 #include <parser.h>
@@ -7,12 +7,13 @@
 #include <string.h>
 #include <ctype.h>
 
-cmark_node_type CMARK_NODE_INLINE_MATH;
-cmark_node_type CMARK_NODE_MATH_BLOCK;
+cmark_node_type CMARK_NODE_INLINE_FORMULA;
+cmark_node_type CMARK_NODE_FORMULA_BLOCK;
 
-static cmark_node *match_math(cmark_syntax_extension *self, cmark_parser *parser,
-                              cmark_node *parent, unsigned char character,
-                              cmark_inline_parser *inline_parser) {
+static cmark_node *match_formula(cmark_syntax_extension *self,
+                                 cmark_parser *parser, cmark_node *parent,
+                                 unsigned char character,
+                                 cmark_inline_parser *inline_parser) {
   if (character != '$') {
     return NULL;
   }
@@ -61,8 +62,9 @@ static cmark_node *match_math(cmark_syntax_extension *self, cmark_parser *parser
 
         bufsize_t content_length = (bufsize_t)(i - delimiter_length);
         unsigned char *content_start = (unsigned char *)(data + delimiter_length);
-        cmark_node_type node_type =
-            delimiter_length == 1 ? CMARK_NODE_INLINE_MATH : CMARK_NODE_MATH_BLOCK;
+        cmark_node_type node_type = delimiter_length == 1
+                                        ? CMARK_NODE_INLINE_FORMULA
+                                        : CMARK_NODE_FORMULA_BLOCK;
 
         cmark_node *node = cmark_node_new_with_mem(node_type, parser->mem);
         cmark_node_set_syntax_extension(node, self);
@@ -92,11 +94,11 @@ static cmark_node *match_math(cmark_syntax_extension *self, cmark_parser *parser
 
 static const char *get_type_string(cmark_syntax_extension *extension,
                                    cmark_node *node) {
-  if (node->type == CMARK_NODE_INLINE_MATH) {
-    return "inlineMath";
+  if (node->type == CMARK_NODE_INLINE_FORMULA) {
+    return "inlineFormula";
   }
-  if (node->type == CMARK_NODE_MATH_BLOCK) {
-    return "mathBlock";
+  if (node->type == CMARK_NODE_FORMULA_BLOCK) {
+    return "formulaBlock";
   }
   return "<unknown>";
 }
@@ -116,7 +118,7 @@ static void commonmark_render(cmark_syntax_extension *extension,
                               cmark_event_type ev_type, int options) {
   bool entering = ev_type == CMARK_EVENT_ENTER;
   const char *delim =
-      node->type == CMARK_NODE_INLINE_MATH ? "$" : "$$";
+      node->type == CMARK_NODE_INLINE_FORMULA ? "$" : "$$";
 
   if (entering) {
     renderer->out(renderer, node, delim, false, LITERAL);
@@ -132,8 +134,10 @@ static void html_render(cmark_syntax_extension *extension,
     return;
   }
 
-  const char *open = node->type == CMARK_NODE_INLINE_MATH ? "\\(" : "\\[";
-  const char *close = node->type == CMARK_NODE_INLINE_MATH ? "\\)" : "\\]";
+  const char *open =
+      node->type == CMARK_NODE_INLINE_FORMULA ? "\\(" : "\\[";
+  const char *close =
+      node->type == CMARK_NODE_INLINE_FORMULA ? "\\)" : "\\]";
 
   cmark_strbuf_puts(renderer->html, open);
   cmark_html_render_esc_html(renderer, node->as.literal.data,
@@ -150,8 +154,8 @@ static void plaintext_render(cmark_syntax_extension *extension,
   }
 }
 
-cmark_syntax_extension *create_math_extension(void) {
-  cmark_syntax_extension *ext = cmark_syntax_extension_new("math");
+cmark_syntax_extension *create_formula_extension(void) {
+  cmark_syntax_extension *ext = cmark_syntax_extension_new("formula");
   cmark_llist *special_chars = NULL;
 
   cmark_syntax_extension_set_get_type_string_func(ext, get_type_string);
@@ -161,10 +165,10 @@ cmark_syntax_extension *create_math_extension(void) {
   cmark_syntax_extension_set_plaintext_render_func(ext, plaintext_render);
   cmark_syntax_extension_set_html_render_func(ext, html_render);
 
-  CMARK_NODE_INLINE_MATH = cmark_syntax_extension_add_node(1);
-  CMARK_NODE_MATH_BLOCK = cmark_syntax_extension_add_node(1);
+  CMARK_NODE_INLINE_FORMULA = cmark_syntax_extension_add_node(1);
+  CMARK_NODE_FORMULA_BLOCK = cmark_syntax_extension_add_node(1);
 
-  cmark_syntax_extension_set_match_inline_func(ext, match_math);
+  cmark_syntax_extension_set_match_inline_func(ext, match_formula);
 
   cmark_mem *mem = cmark_get_default_mem_allocator();
   special_chars = cmark_llist_append(mem, special_chars, (void *)'$');
