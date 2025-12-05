@@ -10,6 +10,7 @@ set(LIBRARY_SOURCES
     ext_scanners.re
     ext_scanners.h
     tasklist.c
+    formula.c
    )
 
 include_directories(

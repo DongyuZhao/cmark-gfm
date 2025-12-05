@@ -47,6 +47,9 @@ bool cmark_gfm_extensions_get_tasklist_item_checked(cmark_node *node);
 CMARK_GFM_EXPORT
 int cmark_gfm_extensions_set_tasklist_item_checked(cmark_node *node, bool is_checked);
 
+CMARK_GFM_EXPORT
+const char *cmark_gfm_extensions_get_formula_literal(cmark_node *node);
+
 #ifdef __cplusplus
 }
 #endif
