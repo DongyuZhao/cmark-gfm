@@ -130,19 +130,20 @@ static void commonmark_render(cmark_syntax_extension *extension,
 static void html_render(cmark_syntax_extension *extension,
                         cmark_html_renderer *renderer, cmark_node *node,
                         cmark_event_type ev_type, int options) {
-  if (ev_type != CMARK_EVENT_ENTER) {
-    return;
-  }
+  bool entering = (ev_type == CMARK_EVENT_ENTER);
 
   const char *open =
       node->type == CMARK_NODE_INLINE_FORMULA ? "\\(" : "\\[";
   const char *close =
       node->type == CMARK_NODE_INLINE_FORMULA ? "\\)" : "\\]";
 
-  cmark_strbuf_puts(renderer->html, open);
-  cmark_html_render_esc_html(renderer, node->as.literal.data,
-                             node->as.literal.len);
-  cmark_strbuf_puts(renderer->html, close);
+  if (entering) {
+    cmark_strbuf_puts(renderer->html, open);
+    cmark_html_render_esc_html(renderer, node->as.literal.data,
+                               node->as.literal.len);
+  } else {
+    cmark_strbuf_puts(renderer->html, close);
+  }
 }
 
 static void plaintext_render(cmark_syntax_extension *extension,
