@@ -21,8 +21,6 @@ cmark_syntax_extension *create_autolink_extension(void);
 CMARK_GFM_EXPORT
 cmark_syntax_extension *create_tagfilter_extension(void);
 CMARK_GFM_EXPORT
-cmark_syntax_extension *create_formula_extension(void);
-CMARK_GFM_EXPORT
 cmark_syntax_extension *create_tasklist_extension(void);
 
 /** Sets the number of columns for the table, returning 1 on success and 0 on error.
