@@ -143,7 +143,6 @@ static void html_render(cmark_syntax_extension *extension,
   cmark_html_render_esc_html(renderer, node->as.literal.data,
                              node->as.literal.len);
   cmark_strbuf_puts(renderer->html, close);
-  renderer->skip = true;
 }
 
 static void plaintext_render(cmark_syntax_extension *extension,
