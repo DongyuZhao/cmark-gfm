@@ -72,7 +72,8 @@ static cmark_node *find_first_text_node(cmark_node *block) {
 
 static bool detect_tasklist_from_ast_item(cmark_node *item, bool *checked_out,
                                           cmark_node **first_text_out,
-                                          size_t *prefix_len_out) {
+                                          size_t *prefix_len_out,
+                                          size_t *next_ws_out) {
   // Walk the first block and locate the earliest text node, then look for the
   // same task marker pattern the block parser used to recognize. This mirrors
   // the old open_tasklist_item logic while operating on the finished AST.
@@ -82,6 +83,10 @@ static bool detect_tasklist_from_ast_item(cmark_node *item, bool *checked_out,
 
   cmark_node *block = item->first_child;
   cmark_node *first_text = find_first_text_node(block);
+
+  if (next_ws_out) {
+    *next_ws_out = 0;
+  }
 
   if (!first_text) {
     return false;
@@ -119,6 +124,8 @@ static bool detect_tasklist_from_ast_item(cmark_node *item, bool *checked_out,
     trailing++;
   }
 
+  size_t leading_ws_next = 0;
+
   if (trailing == 0) {
     bool marker_at_line_end = (literal_len == offset + 3) &&
                               (item->end_line == first_text->end_line) &&
@@ -128,7 +135,19 @@ static bool detect_tasklist_from_ast_item(cmark_node *item, bool *checked_out,
        first_text->next->type == CMARK_NODE_LINEBREAK);
 
     if (!marker_at_line_end && !marker_followed_by_break) {
-      return false;
+      if (first_text->next && first_text->next->type == CMARK_NODE_TEXT) {
+        const char *next_literal = cmark_node_get_literal(first_text->next);
+        if (next_literal) {
+          while (next_literal[leading_ws_next] == ' ' ||
+                 next_literal[leading_ws_next] == '\t') {
+            leading_ws_next++;
+          }
+        }
+      }
+
+      if (leading_ws_next == 0) {
+        return false;
+      }
     }
   }
 
@@ -144,11 +163,15 @@ static bool detect_tasklist_from_ast_item(cmark_node *item, bool *checked_out,
     *prefix_len_out = offset + 3 + trailing;
   }
 
+  if (next_ws_out) {
+    *next_ws_out = leading_ws_next;
+  }
+
   return true;
 }
 
 static void strip_task_marker(cmark_node *item, cmark_node *first_text,
-                              size_t prefix_len) {
+                              size_t prefix_len, size_t next_ws) {
   if (!first_text) {
     return;
   }
@@ -158,15 +181,54 @@ static void strip_task_marker(cmark_node *item, cmark_node *first_text,
   cmark_node *block = first_text->parent;
 
   if (!literal || literal_len <= prefix_len) {
-    cmark_node *next = NULL;
+    cmark_node *next_block_sibling = NULL;
+    cmark_node *next_inline_sibling = first_text->next;
     if (block) {
-      next = block->next;
+      next_block_sibling = block->next;
     }
+
     cmark_node_unlink(first_text);
     cmark_node_free(first_text);
 
+    if (next_ws && next_inline_sibling &&
+        next_inline_sibling->type == CMARK_NODE_TEXT) {
+      const char *next_lit = cmark_node_get_literal(next_inline_sibling);
+      size_t trim = 0;
+      if (next_lit) {
+        size_t len = strlen(next_lit);
+        while (trim < len && trim < next_ws &&
+               (next_lit[trim] == ' ' || next_lit[trim] == '\t')) {
+          trim++;
+        }
+
+        if (trim == len) {
+          cmark_node *parent = next_inline_sibling->parent;
+          cmark_node *following = next_inline_sibling->next;
+          cmark_node_unlink(next_inline_sibling);
+          cmark_node_free(next_inline_sibling);
+
+          if (parent && parent->type == CMARK_NODE_PARAGRAPH &&
+              parent->first_child == NULL && parent->parent == item &&
+              parent->prev == NULL && parent->next == NULL) {
+            cmark_node_unlink(parent);
+            cmark_node_free(parent);
+          }
+
+          next_inline_sibling = following;
+        } else if (trim > 0) {
+          cmark_node_set_literal(next_inline_sibling, next_lit + trim);
+          next_inline_sibling->start_column += (int)trim;
+          if (next_inline_sibling->parent &&
+              next_inline_sibling->parent->type == CMARK_NODE_PARAGRAPH &&
+              next_inline_sibling->parent->first_child == next_inline_sibling) {
+            next_inline_sibling->parent->start_column += (int)trim;
+          }
+        }
+      }
+    }
+
     if (block && block->parent == item && block->first_child == NULL &&
-        block->prev == NULL && next == NULL) {
+        block->prev == NULL && next_block_sibling == NULL) {
       cmark_node_unlink(block);
       cmark_node_free(block);
     }
@@ -206,8 +268,9 @@ static cmark_node *tasklist_postprocess(cmark_syntax_extension *ext,
     bool checked = false;
     cmark_node *first_text = NULL;
     size_t prefix_len = 0;
+    size_t next_ws = 0;
     bool is_task = detect_tasklist_from_ast_item(node, &checked, &first_text,
-                                                 &prefix_len);
+                                                 &prefix_len, &next_ws);
 
     if (!is_task) {
       continue;
@@ -215,7 +278,7 @@ static cmark_node *tasklist_postprocess(cmark_syntax_extension *ext,
 
     cmark_node_set_syntax_extension(node, ext);
     node->as.list.checked = checked;
-    strip_task_marker(node, first_text, prefix_len);
+    strip_task_marker(node, first_text, prefix_len, next_ws);
   }
 
   cmark_iter_free(iter);

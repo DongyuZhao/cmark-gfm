@@ -883,6 +883,21 @@ Show a regular (non task) list to show that it has the same structure
 <li>[@] bim</li>
 </ul>
 ````````````````````````````````
+
+Task list markers inside block quotes should still be stripped from the
+visible text content.
+
+```````````````````````````````` example
+> - [ ] todo
+> - [x] done
+.
+<blockquote>
+<ul>
+<li><input type="checkbox" disabled="" /> todo</li>
+<li><input type="checkbox" checked="" disabled="" /> done</li>
+</ul>
+</blockquote>
+````````````````````````````````
 Use a larger indent -- a task list and a regular list should produce
 the same structure.
 
