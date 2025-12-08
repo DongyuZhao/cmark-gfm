@@ -123,7 +123,11 @@ static bool detect_tasklist_from_ast_item(cmark_node *item, bool *checked_out,
     bool marker_at_line_end = (literal_len == offset + 3) &&
                               (item->end_line == first_text->end_line) &&
                               (item->end_column > first_text->end_column);
-    if (!marker_at_line_end) {
+    bool marker_followed_by_break = first_text->next &&
+      (first_text->next->type == CMARK_NODE_SOFTBREAK ||
+       first_text->next->type == CMARK_NODE_LINEBREAK);
+
+    if (!marker_at_line_end && !marker_followed_by_break) {
       return false;
     }
   }
