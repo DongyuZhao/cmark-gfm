@@ -3,6 +3,7 @@
 #include "references.h"
 #include "inlines.h"
 #include "chunk.h"
+#include "feed.h"
 
 static void reference_free(cmark_map *map, cmark_map_entry *_ref) {
   cmark_reference *ref = (cmark_reference *)_ref;
@@ -24,7 +25,14 @@ void cmark_reference_create(cmark_map *map, cmark_chunk *label,
   if (reflabel == NULL)
     return;
 
-  assert(map->sorted == NULL);
+  // Feed: refs may be added after a previous lookup has populated the
+  // sorted-index cache (this never happens in batch mode, where defs are
+  // fully discovered before any inline parsing). Invalidate so the next
+  // lookup re-sorts and observes the new entry.
+  if (map->sorted) {
+    map->mem->free(map->sorted);
+    map->sorted = NULL;
+  }
 
   ref = (cmark_reference *)map->mem->calloc(1, sizeof(*ref));
   ref->entry.label = reflabel;
@@ -36,6 +44,28 @@ void cmark_reference_create(cmark_map *map, cmark_chunk *label,
 
   map->refs = (cmark_map_entry *)ref;
   map->size++;
+
+  // Feed hooks. Cross-check that the active parser owns this map —
+  // public callers may operate on a standalone map outside any parser
+  // context.
+  {
+    cmark_parser *active = cmark_parser_feed_active_parser();
+    if (active && active->refmap == map) {
+      // Tentative: log the insertion so revert can remove it. This must
+      // come BEFORE resolve_pending_refs, since that function would
+      // re-mark blocks dirty — and reverting REFMAP_ADD without unwinding
+      // the dirty-mark would still be safe (re-parsing without the def
+      // produces the same result), but we keep the order to match the
+      // chronological undo invariant.
+      if (cmark_parser_feed_partial_txn_active(active)) {
+        cmark_parser_feed_partial_txn_record_refmap_add(active,
+                                                      &ref->entry);
+      }
+      // Notify any blocks that previously failed to resolve this label so
+      // they get re-parsed on the next snapshot.
+      cmark_parser_feed_resolve_pending_refs(active, *label);
+    }
+  }
 }
 
 cmark_map *cmark_reference_map_new(cmark_mem *mem) {

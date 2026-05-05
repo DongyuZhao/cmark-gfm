@@ -3,6 +3,7 @@
 
 #include "config.h"
 #include "node.h"
+#include "feed.h"
 #include "syntax_extension.h"
 
 /**
@@ -176,8 +177,27 @@ static void free_node_as(cmark_node *node) {
 
 // Free a cmark_node list and any children.
 static void S_free_nodes(cmark_node *e) {
+  // Feed: drop any references the active parser's intrusive lists
+  // (dirty-blocks, pending-ref users, partial-line txn) hold to the nodes
+  // we're about to free. Sample the heads once: if all are empty here,
+  // freeing nodes can't make them non-empty, so we can skip the per-node
+  // hook entirely (the common case for inline children).
+  cmark_parser *active = cmark_parser_feed_active_parser();
+  bool needs_forget = active &&
+      (active->feed.dirty_blocks_head != NULL ||
+       active->feed.pending_ref_users_head != NULL ||
+       active->feed.partial_txn != NULL);
   cmark_node *next;
   while (e != NULL) {
+    // Only blocks are tracked by the feed lists. Skip the per-node
+    // walk for inlines — important for cmark_consolidate_text_nodes, which
+    // can free hundreds of thousands of TEXT nodes. Defensive INLINE_DIRTY
+    // check covers extensions that mark an inline dirty via
+    // cmark_node_set_string_content.
+    if (needs_forget && (CMARK_NODE_BLOCK_P(e) ||
+                         (e->flags & CMARK_NODE__INLINE_DIRTY))) {
+      cmark_parser_feed_forget_node(active, e);
+    }
     cmark_strbuf_free(&e->content);
 
     if (e->user_data && e->user_data_free_func)
@@ -219,6 +239,16 @@ int cmark_node_set_type(cmark_node * node, cmark_node_type type) {
   if (type == node->type)
     return 1;
 
+  cmark_parser *active = cmark_parser_feed_active_parser();
+  bool tentative = active && cmark_parser_feed_partial_txn_active(active);
+
+  // Snapshot the prior type and `as` payload before the morph. If we're in
+  // tentative mode, log the MORPH op so revert can restore. The snapshot
+  // must happen BEFORE the can-contain check that might rewrite node->type.
+  uint16_t prior_type_id = node->type;
+  unsigned char prior_as_snapshot[sizeof(node->as)];
+  memcpy(prior_as_snapshot, &node->as, sizeof(node->as));
+
   initial_type = (cmark_node_type) node->type;
   node->type = (uint16_t)type;
 
@@ -229,9 +259,54 @@ int cmark_node_set_type(cmark_node * node, cmark_node_type type) {
 
   /* We rollback the type to free the union members appropriately */
   node->type = (uint16_t)initial_type;
-  free_node_as(node);
+  // Tentative path: do NOT free the prior `as` payload — the snapshot we
+  // took above keeps a copy of the chunk pointers, and the txn record will
+  // own them on revert. Non-tentative path: free as normal.
+  if (!tentative)
+    free_node_as(node);
 
   node->type = (uint16_t)type;
+
+  cmark_node *detached_first = NULL;
+  cmark_node *detached_last = NULL;
+  if (tentative) {
+    // Tentative morph: detach EVERY child of node (whether or not the new
+    // type can contain it). The MORPH revert frees whatever children the
+    // post-morph caller adds (e.g. table extension building rows) and
+    // re-attaches this stashed chain. Detaching everything ensures the
+    // pre-morph state is captured exactly, regardless of whether the
+    // morph would have freed children on its own.
+    detached_first = node->first_child;
+    detached_last = node->last_child;
+    for (cmark_node *c = detached_first; c; c = c->next) {
+      c->parent = NULL;
+    }
+    node->first_child = NULL;
+    node->last_child = NULL;
+  } else {
+    // Non-tentative path: free children that the new type cannot contain.
+    cmark_node *child = node->first_child;
+    while (child) {
+      cmark_node *next = child->next;
+      if (!cmark_node_can_contain_type(node, (cmark_node_type)child->type)) {
+        cmark_node_free(child);
+      }
+      child = next;
+    }
+  }
+
+  if (tentative) {
+    cmark_parser_feed_partial_txn_record_morph(
+        active, node, prior_type_id, prior_as_snapshot, sizeof(node->as),
+        detached_first, detached_last);
+    // The detach above stripped any inlines parsed against the prior type
+    // (e.g. a setext underline morphs a paragraph that already had its
+    // "Hello" TEXT parsed in this same snapshot). The node still owns the
+    // content buffer, so mark it dirty for the next run_pending_inlines —
+    // otherwise the morphed node renders empty. No-op for new types that
+    // don't contain inlines (process_one_dirty_block checks).
+    cmark_parser_feed_mark_inline_dirty(active, node);
+  }
 
   return 1;
 }
@@ -421,6 +496,17 @@ const char *cmark_node_get_string_content(cmark_node *node) {
 
 int cmark_node_set_string_content(cmark_node *node, const char *content) {
   cmark_strbuf_sets(&node->content, content);
+  // Feed: mark inline state stale so it is re-parsed on the next
+  // snapshot/finalize. Used by extensions (e.g. table cells written via
+  // this entry point). The contains_inlines mirror lives on extensions or
+  // the core block-type set; we conservatively mark and let the inline-run
+  // pass decide whether re-parse is meaningful.
+  {
+    cmark_parser *active = cmark_parser_feed_active_parser();
+    if (active) {
+      cmark_parser_feed_mark_inline_dirty(active, node);
+    }
+  }
   return true;
 }
 

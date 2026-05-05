@@ -23,6 +23,7 @@
 #include "houdini.h"
 #include "buffer.h"
 #include "footnotes.h"
+#include "feed.h"
 
 #define CODE_INDENT 4
 #define TAB_STOP 4
@@ -111,6 +112,11 @@ int cmark_parser_attach_syntax_extension(cmark_parser *parser,
 }
 
 static void cmark_parser_dispose(cmark_parser *parser) {
+  // Feed: free intrusive event/dirty/pending lists *before* the tree
+  // so the per-node "forget" hook in S_free_nodes short-circuits — without
+  // this, full disposal would pay O(N * P) walking lists for every node.
+  cmark_parser_feed_state_free(parser->mem, &parser->feed);
+
   if (parser->root)
     cmark_node_free(parser->root);
 
@@ -141,6 +147,11 @@ static void cmark_parser_reset(cmark_parser *parser) {
   parser->syntax_extensions = saved_exts;
   parser->inline_syntax_extensions = saved_inline_exts;
   parser->options = saved_options;
+
+  cmark_parser_feed_state_init(&parser->feed);
+  // Feed mode is now read directly from parser->options & CMARK_OPT_FEED_AST
+  // — there is no separate feed_active state to reset. Sticky-across-reset
+  // is intrinsic because saved_options is preserved above.
 }
 
 cmark_parser *cmark_parser_new_with_mem(int options, cmark_mem *mem) {
@@ -167,6 +178,7 @@ void cmark_parser_free(cmark_parser *parser) {
 }
 
 static cmark_node *finalize(cmark_parser *parser, cmark_node *b);
+static void try_eager_ref_extract(cmark_parser *parser, cmark_node *p);
 
 // Returns true if line has only space characters, else false.
 static bool is_blank(cmark_strbuf *s, bufsize_t offset) {
@@ -195,7 +207,11 @@ static CMARK_INLINE bool accepts_lines(cmark_node_type block_type) {
           block_type == CMARK_NODE_CODE_BLOCK);
 }
 
-static CMARK_INLINE bool contains_inlines(cmark_node *node) {
+// Declared in parser.h (internal header) so feed.c can share it.
+// One definition of "what kinds of blocks have inline children";
+// duplicating across translation units is a maintenance hazard (extensions
+// adding new block types would need every copy updated).
+bool cmark_block_contains_inlines(cmark_node *node) {
   if (node->extension && node->extension->contains_inlines_func) {
     return node->extension->contains_inlines_func(node->extension, node) != 0;
   }
@@ -208,6 +224,12 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
   int chars_to_tab;
   int i;
   assert(node->flags & CMARK_NODE__OPEN);
+  // Feed: snapshot a partial-line transaction record before mutating
+  // node->content so cmark_parser_feed_partial_txn_revert can truncate back.
+  // No-op outside an active transaction.
+  if (cmark_parser_feed_partial_txn_active(parser)) {
+    cmark_parser_feed_partial_txn_record_add_line(parser, node, node->content.size);
+  }
   if (parser->partially_consumed_tab) {
     parser->offset += 1; // skip over tab
     // add space characters:
@@ -218,6 +240,22 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
   }
   cmark_strbuf_put(&node->content, ch->data + parser->offset,
                    ch->len - parser->offset);
+
+  // Feed-only: try to extract any leading ref-defs that are now
+  // complete and bounded. This populates the refmap as soon as possible —
+  // without waiting for the paragraph to close — so earlier blocks with
+  // [foo] references resolve to LINK on the next snapshot. Strictly gated
+  // on feed_active: in oneshot (cmark_parse_document or feed+finish
+  // without snapshot), refmap is fully populated by finalize_document
+  // before any inline parse, so eager extraction is unnecessary work that
+  // also breaks the oneshot=oracle contract by changing when content is
+  // dropped from paragraphs. During a tentative partial-line pass the
+  // function records its content drop and refmap insertions as txn ops,
+  // so the next feed/finish/snapshot reverts both.
+  if ((parser->options & CMARK_OPT_FEED_AST))
+    try_eager_ref_extract(parser, node);
+
+  cmark_parser_feed_mark_inline_dirty(parser, node);
 }
 
 static void remove_trailing_blank_lines(cmark_strbuf *ln) {
@@ -269,6 +307,7 @@ static bool resolve_reference_link_definitions(
   bufsize_t pos;
   cmark_strbuf *node_content = &b->content;
   cmark_chunk chunk = {node_content->ptr, node_content->size, 0};
+  bufsize_t prior_content_size = node_content->size;
   while (chunk.len && chunk.data[0] == '[' &&
          (pos = cmark_parse_reference_inline(parser->mem, &chunk,
 					     parser->refmap))) {
@@ -277,7 +316,84 @@ static bool resolve_reference_link_definitions(
     chunk.len -= pos;
   }
   cmark_strbuf_drop(node_content, (node_content->size - chunk.len));
+  if (node_content->size != prior_content_size) {
+    // Feed: process_inlines walks the tree unconditionally, but the
+    // snapshot path drains the dirty list — without an explicit mark, a
+    // paragraph that retained content after ref-def extraction would not
+    // be re-inline-parsed against the truncated buffer. No-op when
+    // feed mode is inactive.
+    cmark_parser_feed_mark_inline_dirty(parser, b);
+  }
   return !is_blank(&b->content, 0);
+}
+
+// Feed: attempt to extract leading [label]: url ["title"] reference
+// definitions from a paragraph's content as soon as we can prove the def is
+// bounded — i.e., before the paragraph closes.
+//
+// Why this is needed: in standard cmark, ref-defs are extracted only when
+// their host paragraph finalizes. For incremental input that's a problem:
+// a [foo] reference earlier in the document stays as plain text until the
+// trailing def-paragraph closes (typically requiring a following blank line
+// the user may not have fed yet). Eager extraction lets the def populate
+// the refmap as soon as it is unambiguously complete.
+//
+// Why it must be careful: the title can extend onto the next line (CommonMark
+// permits [foo]: url\n   "title"\n). If we extract a def at the moment we
+// see [foo]: url\n and the next bytes turn out to be    "title"\n, we
+// have committed a different AST than one-shot parse would have produced —
+// a contract violation.
+//
+// Safety rule: a leading def is committable iff the first byte after its
+// parsed extent is non-whitespace. Reasoning:
+//   - whitespace at that byte could be the leading indent of a title-bearing
+//     continuation line; defer until the next byte arrives;
+//   - a non-whitespace byte means any title would have had to start on the
+//     def line itself (already considered by the parser) and didn't, so the
+//     def is final and the trailing content belongs to a subsequent block.
+static void try_eager_ref_extract(cmark_parser *parser, cmark_node *p) {
+  if (S_type(p) != CMARK_NODE_PARAGRAPH)
+    return;
+  cmark_strbuf *node_content = &p->content;
+  bufsize_t cursor = 0;
+  while (cursor < node_content->size && node_content->ptr[cursor] == '[') {
+    cmark_chunk dryrun = {node_content->ptr + cursor,
+                           node_content->size - cursor, 0};
+    bufsize_t parsed_len = cmark_parse_reference_inline(parser->mem, &dryrun,
+                                                        /*refmap=*/NULL);
+    if (parsed_len == 0)
+      break;
+    // Safety: can we prove the def is bounded?
+    bufsize_t next_byte_offset = cursor + parsed_len;
+    if (next_byte_offset >= node_content->size)
+      break;  // No bytes after — title might still extend the def.
+    unsigned char next_byte = node_content->ptr[next_byte_offset];
+    if (next_byte == ' ' || next_byte == '\t')
+      break;  // Whitespace lead-in — could be a title-continuation line.
+    // Bounded: commit.
+    cmark_chunk commit = {node_content->ptr + cursor,
+                           node_content->size - cursor, 0};
+    cmark_parse_reference_inline(parser->mem, &commit, parser->refmap);
+    cursor = next_byte_offset;
+  }
+  if (cursor > 0) {
+    // Feed: log the content state before the drop so the partial-line
+    // txn can revert. The cmark_reference_create above already logged
+    // REFMAP_ADD for each extracted def; this captures the matching
+    // content-buffer mutation. No-op outside an active txn.
+    if (cmark_parser_feed_partial_txn_active(parser)) {
+      cmark_parser_feed_partial_txn_record_content_rewrite(
+          parser, p, node_content->ptr, node_content->size);
+    }
+    cmark_strbuf_drop(node_content, cursor);
+    // Reset inline_parsed_len: it was an offset into the pre-drop content
+    // and is meaningless against the shrunken buffer. Leaving it stale
+    // would let process_inlines' "already parsed" fast path skip a
+    // legitimate reparse if inline_parsed_len happens to match the new
+    // content size. Re-attempting from byte 0 in a future call is correct
+    // — we always loop from byte 0 of node_content above.
+    p->inline_parsed_len = 0;
+  }
 }
 
 static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
@@ -286,6 +402,36 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
   cmark_node *subitem;
   cmark_node *parent;
   bool has_content;
+
+  bool tentative = cmark_parser_feed_partial_txn_active(parser);
+
+  // Feed (tentative): snapshot enough state for revert to undo this
+  // finalize. CLOSE_BLOCK saves OPEN flag + end position; CONTENT_REWRITE
+  // saves the content buffer if finalize will mutate it (paragraph
+  // ref-def extraction, code-block content detach, html-block content
+  // detach); MORPH (reused with same prior_type) saves the `as` payload
+  // for type-specific finalize side effects (code/html literal chunks,
+  // list tight flag).
+  if (tentative) {
+    cmark_parser_feed_partial_txn_record_close_block(parser, b, b->flags,
+                                                   b->end_line, b->end_column);
+    cmark_node_type t = S_type(b);
+    bool will_mutate_content =
+        (t == CMARK_NODE_PARAGRAPH ||
+         t == CMARK_NODE_CODE_BLOCK ||
+         t == CMARK_NODE_HTML_BLOCK);
+    if (will_mutate_content && b->content.size > 0) {
+      cmark_parser_feed_partial_txn_record_content_rewrite(
+          parser, b, b->content.ptr, b->content.size);
+    }
+    bool will_mutate_as =
+        (t == CMARK_NODE_CODE_BLOCK || t == CMARK_NODE_HTML_BLOCK ||
+         t == CMARK_NODE_LIST);
+    if (will_mutate_as) {
+      cmark_parser_feed_partial_txn_record_save_as(parser, b, &b->as,
+                                                 sizeof(b->as));
+    }
+  }
 
   parent = b->parent;
   assert(b->flags &
@@ -317,8 +463,26 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
   {
     has_content = resolve_reference_link_definitions(parser, b);
     if (!has_content) {
-      // remove blank node (former reference def)
-      cmark_node_free(b);
+      // Paragraph is only reference defs and should be removed. In
+      // tentative mode we unlink (and stash for revert); otherwise free.
+      if (tentative) {
+        cmark_node *prev = b->prev;
+        cmark_node *next = b->next;
+        cmark_node *par = b->parent;
+        if (par) {
+          if (b->prev) b->prev->next = b->next;
+          else par->first_child = b->next;
+          if (b->next) b->next->prev = b->prev;
+          else par->last_child = b->prev;
+        }
+        b->prev = NULL;
+        b->next = NULL;
+        b->parent = NULL;
+        cmark_parser_feed_partial_txn_record_detach(parser, b, par, prev, next);
+      } else {
+        cmark_node_free(b);
+      }
+      return parent;
     }
     break;
   }
@@ -413,6 +577,13 @@ static cmark_node *add_child(cmark_parser *parser, cmark_node *parent,
     child->prev = NULL;
   }
   parent->last_child = child;
+
+  // Feed: log this addition so a partial-line transaction can free the
+  // child on revert. No-op outside an active transaction.
+  if (cmark_parser_feed_partial_txn_active(parser)) {
+    cmark_parser_feed_partial_txn_record_add_child(parser, child);
+  }
+
   return child;
 }
 
@@ -434,6 +605,12 @@ void cmark_manage_extensions_special_characters(cmark_parser *parser, int add) {
 
 // Walk through node and all children, recursively, parsing
 // string content into inline content where appropriate.
+//
+// Feed: blocks whose inline content has already been parsed by
+// cmark_parser_snapshot — and not modified since — are skipped. The
+// indicator is `inline_parsed_len == content.size && !INLINE_DIRTY`. New
+// content arriving via add_line resets INLINE_DIRTY, so this skip only
+// fires for genuinely up-to-date subtrees.
 static void process_inlines(cmark_parser *parser,
                             cmark_map *refmap, int options) {
   cmark_iter *iter = cmark_iter_new(parser->root);
@@ -445,8 +622,25 @@ static void process_inlines(cmark_parser *parser,
   while ((ev_type = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
     cur = cmark_iter_get_node(iter);
     if (ev_type == CMARK_EVENT_ENTER) {
-      if (contains_inlines(cur)) {
-        cmark_parse_inlines(parser, cur, refmap, options);
+      if (cmark_block_contains_inlines(cur)) {
+        bool already_parsed =
+            !(cur->flags & CMARK_NODE__INLINE_DIRTY) &&
+            cur->inline_parsed_len == cur->content.size &&
+            cur->content.size > 0;
+        if (!already_parsed) {
+          // Feed: cmark_iter_next yielded ENTER cur and immediately
+          // cached iter->next.node = cur->first_child. We're about to free
+          // those children, so reset the iterator to skip past cur — its
+          // freshly-rebuilt children are inlines, which contains_inlines is
+          // never true for, so we'd not act on them anyway.
+          while (cur->first_child) {
+            cmark_node_free(cur->first_child);
+          }
+          cmark_parse_inlines(parser, cur, refmap, options);
+          cur->inline_parsed_len = cur->content.size;
+          cur->flags &= ~CMARK_NODE__INLINE_DIRTY;
+          cmark_iter_reset(iter, cur, CMARK_EVENT_EXIT);
+        }
       }
     }
   }
@@ -686,7 +880,23 @@ cmark_node *cmark_parse_document(const char *buffer, size_t len, int options) {
   cmark_parser *parser = cmark_parser_new(options);
   cmark_node *document;
 
-  S_parser_feed(parser, (const unsigned char *)buffer, len, true);
+  if (options & CMARK_OPT_FEED_AST) {
+    // Feed opt-in: route through the unified feed + finish pipeline.
+    // cmark_parser_new already activated feed bookkeeping, so feed
+    // takes the feed-aware path; finish reverts any tentative state
+    // and runs canonical finalize. The final tree must be byte-identical
+    // to the pristine path below — that equivalence is what makes the
+    // pristine path a usable oracle.
+    cmark_parser_feed(parser, buffer, len);
+  } else {
+    // Pristine oneshot path: does not touch the feed active-parser
+    // TLS or feed bookkeeping. cmark_parser_snapshot is never called
+    // on this parser, feed_active stays false, and every
+    // feed-aware hook short-circuits — preserving the contract that
+    // an out-of-the-box cmark_parse_document call is the behavioral
+    // oracle for feed output.
+    S_parser_feed(parser, (const unsigned char *)buffer, len, true);
+  }
 
   document = cmark_parser_finish(parser);
   cmark_parser_free(parser);
@@ -694,17 +904,106 @@ cmark_node *cmark_parse_document(const char *buffer, size_t len, int options) {
 }
 
 void cmark_parser_feed(cmark_parser *parser, const char *buffer, size_t len) {
+  // Pristine path until feed-mode has been activated by a snapshot call:
+  // skip the active-parser TLS dance and tentative-revert entirely. Once
+  // feed mode is active, mutation primitives need to find this parser via
+  // TLS so they can record txn ops / drive pending-ref resolution, and any
+  // previously-open tentative txn must be reverted before new canonical
+  // bytes append to the linebuf.
+  if (!(parser->options & CMARK_OPT_FEED_AST)) {
+    S_parser_feed(parser, (const unsigned char *)buffer, len, false);
+    return;
+  }
+
+  cmark_parser *prev = cmark_parser_feed_active_parser();
+  cmark_parser_feed_set_active_parser(parser);
+  if (cmark_parser_feed_partial_txn_active(parser))
+    cmark_parser_feed_partial_txn_revert(parser);
   S_parser_feed(parser, (const unsigned char *)buffer, len, false);
+  cmark_parser_feed_set_active_parser(prev);
+}
+
+void cmark_parser_feed_process_partial_line(cmark_parser *parser) {
+  // Caller (cmark_parser_snapshot) owns the partial-line txn lifecycle so
+  // both this step and the subsequent tentative finalize can record into a
+  // single txn. We only run the line through S_process_line; the active
+  // txn captures whatever mutations result.
+  if (!cmark_parser_feed_partial_txn_active(parser))
+    return;
+  if (parser->linebuf.size == 0)
+    return;
+
+  // Build a NUL-terminated working copy so we can hand bytes to
+  // S_process_line without disturbing parser->linebuf. Append a synthetic
+  // newline — S_process_line normalizes by appending '\n' itself if the
+  // input lacks one, but we make the intent explicit here.
+  cmark_strbuf tmp = CMARK_BUF_INIT(parser->mem);
+  cmark_strbuf_put(&tmp, parser->linebuf.ptr, parser->linebuf.size);
+  cmark_strbuf_putc(&tmp, '\n');
+  S_process_line(parser, tmp.ptr, tmp.size);
+  cmark_strbuf_free(&tmp);
+
+  // Run any inline parses queued by the tentative line. The inline-parse
+  // op records the prior children chain so revert can restore them.
+  cmark_parser_feed_run_pending_inlines(parser);
+}
+
+void cmark_parser_feed_tentative_finalize(cmark_parser *parser) {
+  // Tentatively close every open block so the snapshot tree mirrors what
+  // cmark_parse_document(prefix) would produce after EOF. finalize() routes
+  // through the active partial-line txn (CLOSE_BLOCK + CONTENT_REWRITE +
+  // SAVE_AS + DETACH + REFMAP_ADD), so revert restores the canonical
+  // mid-stream state on the next feed/finish/snapshot.
+  if (!cmark_parser_feed_partial_txn_active(parser))
+    return;
+  while (parser->current != parser->root) {
+    parser->current = finalize(parser, parser->current);
+  }
+  finalize(parser, parser->root);
 }
 
 void cmark_parser_feed_reentrant(cmark_parser *parser, const char *buffer, size_t len) {
   cmark_strbuf saved_linebuf;
 
+  // Pristine path: same gating as cmark_parser_feed. If feed mode has
+  // never been activated, no txn can exist and no mutation primitive needs
+  // to discover the parser via TLS.
+  if (!(parser->options & CMARK_OPT_FEED_AST)) {
+    cmark_strbuf_init(parser->mem, &saved_linebuf, 0);
+    cmark_strbuf_puts(&saved_linebuf, cmark_strbuf_cstr(&parser->linebuf));
+    cmark_strbuf_clear(&parser->linebuf);
+
+    size_t saved_total_size = parser->total_size;
+    S_parser_feed(parser, (const unsigned char *)buffer, len, true);
+    parser->total_size = saved_total_size;
+
+    cmark_strbuf_sets(&parser->linebuf, cmark_strbuf_cstr(&saved_linebuf));
+    cmark_strbuf_free(&saved_linebuf);
+    return;
+  }
+
+  // Feed-active path: commit any pending partial-line txn before
+  // injecting bytes. Without this, S_parser_feed below runs against the
+  // tentative tree and its mutations land in the still-open txn — which
+  // the next normal feed/finish/snapshot then reverts, silently dropping
+  // the injection.
+  if (cmark_parser_feed_partial_txn_active(parser))
+    cmark_parser_feed_partial_txn_revert(parser);
+
   cmark_strbuf_init(parser->mem, &saved_linebuf, 0);
   cmark_strbuf_puts(&saved_linebuf, cmark_strbuf_cstr(&parser->linebuf));
   cmark_strbuf_clear(&parser->linebuf);
 
+  // Save total_size so the injected text doesn't pollute the outer parse's
+  // view of input length (used to size refmap memory limits).
+  size_t saved_total_size = parser->total_size;
+
+  cmark_parser *prev = cmark_parser_feed_active_parser();
+  cmark_parser_feed_set_active_parser(parser);
   S_parser_feed(parser, (const unsigned char *)buffer, len, true);
+  cmark_parser_feed_set_active_parser(prev);
+
+  parser->total_size = saved_total_size;
 
   cmark_strbuf_sets(&parser->linebuf, cmark_strbuf_cstr(&saved_linebuf));
   cmark_strbuf_free(&saved_linebuf);
@@ -774,8 +1073,9 @@ static void S_parser_feed(cmark_parser *parser, const unsigned char *buffer,
           if (buffer == end)
             parser->last_buffer_ended_with_cr = true;
         }
-        if (buffer < end && *buffer == '\n')
+        if (buffer < end && *buffer == '\n') {
           buffer++;
+        }
       }
     }
   }
@@ -1203,7 +1503,11 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
 
       if (has_content) {
 
-        (*container)->type = (uint16_t)CMARK_NODE_HEADING;
+        // Rewrite the paragraph in place. Going through cmark_node_set_type
+        // (rather than a direct type assignment) routes the rewrite through
+        // the feed event stream: pointer identity is preserved, and a
+        // RETYPED record is emitted for any active snapshot consumer.
+        cmark_node_set_type(*container, CMARK_NODE_HEADING);
         (*container)->as.heading.level = lev;
         (*container)->as.heading.setext = true;
         S_advance_offset(parser, input, input->len - 1 - parser->offset, false);
@@ -1517,13 +1821,36 @@ finished:
   cmark_strbuf_clear(&parser->curline);
 }
 
+void cmark_parser_extension_postprocess(cmark_parser *parser) {
+  cmark_llist *exts;
+  for (exts = parser->syntax_extensions; exts; exts = exts->next) {
+    cmark_syntax_extension *ext = (cmark_syntax_extension *)exts->data;
+    if (ext->postprocess_func) {
+      cmark_node *processed = ext->postprocess_func(ext, parser, parser->root);
+      if (processed)
+        parser->root = processed;
+    }
+  }
+}
+
 cmark_node *cmark_parser_finish(cmark_parser *parser) {
   cmark_node *res;
-  cmark_llist *extensions;
+  cmark_parser *prev_active = NULL;
+  bool feed_active = (parser->options & CMARK_OPT_FEED_AST);
 
   /* Parser was already finished once */
   if (parser->root == NULL)
     return NULL;
+
+  // Only stream-active parsers need the active-parser TLS dance and the
+  // tentative-revert. A pristine feed+finish without snapshot stays on the
+  // oneshot path with no feed hooks visible to it.
+  if (feed_active) {
+    prev_active = cmark_parser_feed_active_parser();
+    cmark_parser_feed_set_active_parser(parser);
+    if (cmark_parser_feed_partial_txn_active(parser))
+      cmark_parser_feed_partial_txn_revert(parser);
+  }
 
   if (parser->linebuf.size) {
     S_process_line(parser, parser->linebuf.ptr, parser->linebuf.size);
@@ -1532,7 +1859,9 @@ cmark_node *cmark_parser_finish(cmark_parser *parser) {
 
   finalize_document(parser);
 
-  cmark_consolidate_text_nodes(parser->root);
+  // Text-node consolidation is now part of cmark_parse_inlines' contract;
+  // every block reachable through finalize_document → process_inlines is
+  // already merged on return. No tree-wide post-pass needed.
 
   cmark_strbuf_free(&parser->curline);
   cmark_strbuf_free(&parser->linebuf);
@@ -1543,19 +1872,15 @@ cmark_node *cmark_parser_finish(cmark_parser *parser) {
   }
 #endif
 
-  for (extensions = parser->syntax_extensions; extensions; extensions = extensions->next) {
-    cmark_syntax_extension *ext = (cmark_syntax_extension *) extensions->data;
-    if (ext->postprocess_func) {
-      cmark_node *processed = ext->postprocess_func(ext, parser, parser->root);
-      if (processed)
-        parser->root = processed;
-    }
-  }
+  cmark_parser_extension_postprocess(parser);
 
   res = parser->root;
   parser->root = NULL;
 
   cmark_parser_reset(parser);
+
+  if (feed_active)
+    cmark_parser_feed_set_active_parser(prev_active);
 
   return res;
 }

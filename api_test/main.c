@@ -1,10 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #define CMARK_NO_SHORT_NAMES
 #include "cmark-gfm.h"
 #include "node.h"
+#include "parser.h"
 #include "../extensions/cmark-gfm-core-extensions.h"
 
 #include "harness.h"
@@ -34,6 +36,16 @@ static void test_incomplete_char(test_batch_runner *runner, const char *utf8,
                                  const char *msg);
 
 static void test_continuation_byte(test_batch_runner *runner, const char *utf8);
+
+static void attach_gfm_core_extensions(cmark_parser *parser) {
+  const char *exts[] = {"table", "strikethrough", "autolink", "tasklist"};
+  for (size_t i = 0; i < sizeof(exts) / sizeof(*exts); ++i) {
+    cmark_syntax_extension *ext = cmark_find_syntax_extension(exts[i]);
+    if (ext) {
+      cmark_parser_attach_syntax_extension(parser, ext);
+    }
+  }
+}
 
 static void version(test_batch_runner *runner) {
   INT_EQ(runner, cmark_version(), CMARK_GFM_VERSION, "cmark_version");
@@ -938,6 +950,1013 @@ static void test_feed_across_line_ending(test_batch_runner *runner) {
   cmark_node_free(document);
 }
 
+static char *render_oneshot_xml(const char *input, size_t len, int gfm) {
+  char *xml;
+
+  if (!gfm) {
+    cmark_node *doc = cmark_parse_document(input, len, CMARK_OPT_DEFAULT);
+    xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT);
+    cmark_node_free(doc);
+    return xml;
+  }
+
+  cmark_gfm_core_extensions_ensure_registered();
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
+  attach_gfm_core_extensions(parser);
+  cmark_parser_feed(parser, input, len);
+  cmark_node *doc = cmark_parser_finish(parser);
+  xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT);
+  cmark_node_free(doc);
+  cmark_parser_free(parser);
+  return xml;
+}
+
+static void assert_snapshot_matches_oneshot(test_batch_runner *runner,
+                                            const char *input,
+                                            int gfm,
+                                            const char *msg) {
+  size_t len = strlen(input);
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_FEED_AST);
+  if (gfm) {
+    cmark_gfm_core_extensions_ensure_registered();
+    attach_gfm_core_extensions(parser);
+  }
+
+  cmark_parser_feed(parser, input, len);
+  cmark_node *snap = cmark_parser_snapshot(parser);
+  char *xml_snap = cmark_render_xml(snap, CMARK_OPT_DEFAULT);
+  char *xml_one = render_oneshot_xml(input, len, gfm);
+
+  STR_EQ(runner, xml_snap, xml_one, "%s XML", msg);
+
+  cmark_node *doc = cmark_parser_finish(parser);
+  cmark_node_free(doc);
+  cmark_parser_free(parser);
+  free(xml_snap);
+  free(xml_one);
+}
+
+static void assert_split_snapshot_matches_oneshot(test_batch_runner *runner,
+                                                  const char *first,
+                                                  const char *second,
+                                                  int options,
+                                                  int gfm,
+                                                  const char *msg) {
+  size_t first_len = strlen(first);
+  size_t second_len = strlen(second);
+  char *input = (char *)malloc(first_len + second_len + 1);
+  memcpy(input, first, first_len);
+  memcpy(input + first_len, second, second_len);
+  input[first_len + second_len] = '\0';
+
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_FEED_AST | options);
+  if (gfm) {
+    cmark_gfm_core_extensions_ensure_registered();
+    attach_gfm_core_extensions(parser);
+  }
+  cmark_parser_feed(parser, first, first_len);
+  cmark_parser_snapshot(parser);
+  cmark_parser_feed(parser, second, second_len);
+  cmark_node *snap = cmark_parser_snapshot(parser);
+  char *xml_snap = cmark_render_xml(snap, options);
+
+  cmark_node *one;
+  if (gfm) {
+    cmark_parser *one_parser = cmark_parser_new(options);
+    attach_gfm_core_extensions(one_parser);
+    cmark_parser_feed(one_parser, input, first_len + second_len);
+    one = cmark_parser_finish(one_parser);
+    cmark_parser_free(one_parser);
+  } else {
+    one = cmark_parse_document(input, first_len + second_len, options);
+  }
+  char *xml_one = cmark_render_xml(one, options);
+
+  STR_EQ(runner, xml_snap, xml_one, "%s", msg);
+
+  cmark_node *doc = cmark_parser_finish(parser);
+  cmark_node_free(doc);
+  cmark_parser_free(parser);
+  cmark_node_free(one);
+  free(xml_snap);
+  free(xml_one);
+  free(input);
+}
+
+static void assert_feed_prefixes_match(test_batch_runner *runner,
+                                            const char *input,
+                                            size_t case_index,
+                                            int gfm,
+                                            const char *label) {
+  size_t input_len = strlen(input);
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_FEED_AST);
+  if (gfm) {
+    cmark_gfm_core_extensions_ensure_registered();
+    attach_gfm_core_extensions(parser);
+  }
+
+  for (size_t k = 0; k < input_len; ++k) {
+    cmark_parser_feed(parser, input + k, 1);
+    cmark_node *snap = cmark_parser_snapshot(parser);
+    char *xml_snap = cmark_render_xml(snap, CMARK_OPT_DEFAULT);
+    char *xml_one = render_oneshot_xml(input, k + 1, gfm);
+
+    // XML pins the observable AST contract, including adjacent TEXT-node
+    // consolidation. If the AST matches cmark_parse_document(prefix, ...),
+    // rendering with the same options/extensions is deterministic.
+    STR_EQ(runner, xml_snap, xml_one,
+           "%s snapshot-convergence[%zu] prefix %zu XML", label, case_index,
+           k + 1);
+
+    free(xml_snap);
+    free(xml_one);
+  }
+
+  cmark_node *streamed = cmark_parser_finish(parser);
+  char *xml_stream = cmark_render_xml(streamed, CMARK_OPT_DEFAULT);
+  char *xml_one = render_oneshot_xml(input, input_len, gfm);
+
+  STR_EQ(runner, xml_stream, xml_one,
+         "%s final-convergence[%zu] XML",
+         label, case_index);
+
+  free(xml_one);
+  free(xml_stream);
+  cmark_node_free(streamed);
+  cmark_parser_free(parser);
+}
+
+typedef struct {
+  uint32_t magic;
+  size_t size;
+} tracked_alloc_header;
+
+#define TRACKED_ALLOC_MAGIC 0x434d4152u
+
+static size_t tracked_alloc_count = 0;
+static size_t tracked_alloc_bytes = 0;
+
+static void tracked_alloc_reset(void) {
+  tracked_alloc_count = 0;
+  tracked_alloc_bytes = 0;
+}
+
+static void *tracked_calloc(size_t nmemb, size_t size) {
+  if (nmemb && size > (SIZE_MAX - sizeof(tracked_alloc_header)) / nmemb) {
+    return NULL;
+  }
+  size_t user_size = nmemb * size;
+  tracked_alloc_header *header =
+      (tracked_alloc_header *)calloc(1, sizeof(*header) + user_size);
+  if (!header) {
+    return NULL;
+  }
+  header->magic = TRACKED_ALLOC_MAGIC;
+  header->size = user_size;
+  tracked_alloc_count++;
+  tracked_alloc_bytes += user_size;
+  return header + 1;
+}
+
+static void *tracked_realloc(void *ptr, size_t size) {
+  if (!ptr) {
+    return tracked_calloc(1, size);
+  }
+  if (size == 0) {
+    tracked_alloc_header *header = ((tracked_alloc_header *)ptr) - 1;
+    if (header->magic == TRACKED_ALLOC_MAGIC) {
+      tracked_alloc_count--;
+      tracked_alloc_bytes -= header->size;
+      header->magic = 0;
+    }
+    free(header);
+    return NULL;
+  }
+
+  tracked_alloc_header *header = ((tracked_alloc_header *)ptr) - 1;
+  if (header->magic != TRACKED_ALLOC_MAGIC) {
+    abort();
+  }
+  tracked_alloc_header *resized =
+      (tracked_alloc_header *)realloc(header, sizeof(*header) + size);
+  if (!resized) {
+    return NULL;
+  }
+  tracked_alloc_bytes -= resized->size;
+  resized->magic = TRACKED_ALLOC_MAGIC;
+  resized->size = size;
+  tracked_alloc_bytes += size;
+  return resized + 1;
+}
+
+static void tracked_free(void *ptr) {
+  if (!ptr) {
+    return;
+  }
+  tracked_alloc_header *header = ((tracked_alloc_header *)ptr) - 1;
+  if (header->magic != TRACKED_ALLOC_MAGIC) {
+    abort();
+  }
+  tracked_alloc_count--;
+  tracked_alloc_bytes -= header->size;
+  header->magic = 0;
+  free(header);
+}
+
+// Feed-driven AST tests — cover snapshot semantics, partial-line
+// convergence, and the internal regressions that protect those guarantees.
+static void test_feed_ast(test_batch_runner *runner) {
+  // Precondition: cmark_parser_snapshot is only valid on parsers created
+  // with CMARK_OPT_FEED_AST. Without the flag the dirty-blocks list,
+  // partial-line txn, and pending-ref index are never populated, so any
+  // tree we returned would be missing inline children for committed
+  // paragraphs and miss the partial-line tentative pass. Returning NULL
+  // surfaces the misuse explicitly rather than silently producing a wrong
+  // tree — feed mode must be requested at parser creation, not implicitly
+  // activated by calling snapshot.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_DEFAULT);
+    cmark_parser_feed(p, "Hello\n", 6);
+    cmark_node *snap = cmark_parser_snapshot(p);
+    OK(runner, snap == NULL,
+       "snapshot without CMARK_OPT_FEED_AST returns NULL");
+    cmark_node *doc = cmark_parser_finish(p);
+    OK(runner, doc != NULL,
+       "feed+finish on a non-feed-mode parser still produces a document");
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+
+  // Snapshot returns the live root and is non-NULL even before finish.
+  // Partial line converges: feed("Hello", 5); snapshot() must match a
+  // one-shot parse of "Hello".
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "Hello", 5);
+    cmark_node *snap = cmark_parser_snapshot(p);
+    OK(runner, snap != NULL, "snapshot returns non-null root before finish");
+    INT_EQ(runner, (int)cmark_node_get_type(snap), (int)CMARK_NODE_DOCUMENT,
+           "snapshot root is document");
+    cmark_node *para = cmark_node_first_child(snap);
+    OK(runner, para != NULL,
+       "snapshot of partial line shows the in-flight paragraph");
+    if (para) {
+      INT_EQ(runner, (int)cmark_node_get_type(para),
+             (int)CMARK_NODE_PARAGRAPH,
+             "partial-line snapshot contains a paragraph");
+      cmark_node *txt = cmark_node_first_child(para);
+      OK(runner, txt && cmark_node_get_type(txt) == CMARK_NODE_TEXT &&
+                 strcmp(cmark_node_get_literal(txt), "Hello") == 0,
+         "partial-line paragraph holds the inline text 'Hello'");
+    }
+    cmark_parser_free(p);
+  }
+
+  // Snapshot convergence applies to every byte prefix, not just to the final
+  // tree after finish(). These cases pin the prefixes that previously drifted
+  // from cmark_parse_document(prefix, ...).
+  assert_snapshot_matches_oneshot(
+      runner, "Hello\n=", 0,
+      "snapshot setext-prefix keeps paragraph text in promoted heading");
+  assert_snapshot_matches_oneshot(
+      runner, "[foo]: h", 0,
+      "snapshot EOF-style finalizes a reference-only paragraph");
+  assert_snapshot_matches_oneshot(
+      runner, "See [foo].\n\n[foo]: h", 0,
+      "snapshot resolves an earlier reference when a trailing definition arrives");
+  assert_snapshot_matches_oneshot(
+      runner, "```c", 0,
+      "snapshot EOF-style finalizes fenced-code info strings");
+  assert_snapshot_matches_oneshot(
+      runner, "- [", 1,
+      "GFM snapshot matches one-shot list-item paragraph tightness");
+  assert_snapshot_matches_oneshot(
+      runner, "A | B\n-", 1,
+      "GFM snapshot setext/table-prefix keeps promoted heading text");
+
+  // Block identity is part of the feed-mode contract and is the public
+  // signal that snapshots are incremental rather than whole-tree rebuilds.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "Hello\n", 6);
+    cmark_node *snap1 = cmark_parser_snapshot(p);
+    cmark_node *block = cmark_node_first_child(snap1);
+    OK(runner, block != NULL &&
+               cmark_node_get_type(block) == CMARK_NODE_PARAGRAPH,
+       "setext identity: initial block is a paragraph");
+
+    cmark_parser_feed(p, "=", 1);
+    cmark_node *snap2 = cmark_parser_snapshot(p);
+    cmark_node *heading = cmark_node_first_child(snap2);
+    OK(runner, heading == block,
+       "setext identity: paragraph morphs in place to heading");
+    OK(runner, heading != NULL &&
+               cmark_node_get_type(heading) == CMARK_NODE_HEADING,
+       "setext identity: morphed block is a heading");
+    cmark_node *txt = cmark_node_first_child(heading);
+    OK(runner, txt && cmark_node_get_type(txt) == CMARK_NODE_TEXT &&
+               strcmp(cmark_node_get_literal(txt), "Hello") == 0,
+       "setext identity: morphed heading keeps inline text");
+
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  {
+    cmark_gfm_core_extensions_ensure_registered();
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    attach_gfm_core_extensions(p);
+    cmark_parser_feed(p, "A | B\n", 6);
+    cmark_node *snap1 = cmark_parser_snapshot(p);
+    cmark_node *block = cmark_node_first_child(snap1);
+    OK(runner, block != NULL &&
+               cmark_node_get_type(block) == CMARK_NODE_PARAGRAPH,
+       "table identity: initial block is a paragraph");
+
+    cmark_parser_feed(p, "--- | ---", 9);
+    cmark_node *snap2 = cmark_parser_snapshot(p);
+    cmark_node *table = cmark_node_first_child(snap2);
+    OK(runner, table == block,
+       "table identity: paragraph morphs in place to table");
+    OK(runner, table != NULL &&
+               strcmp(cmark_node_get_type_string(table), "table") == 0,
+       "table identity: morphed block is a table");
+    OK(runner, cmark_node_first_child(table) != NULL,
+       "table identity: morphed table has header row children");
+
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "one\n\ntwo\n\n", 10);
+    cmark_node *snap1 = cmark_parser_snapshot(p);
+    cmark_node *first = cmark_node_first_child(snap1);
+    cmark_node *second = first ? cmark_node_next(first) : NULL;
+    OK(runner, first != NULL && second != NULL,
+       "block identity: two closed paragraphs exist before later input");
+
+    cmark_parser_feed(p, "three", 5);
+    cmark_node *snap2 = cmark_parser_snapshot(p);
+    OK(runner, cmark_node_first_child(snap2) == first,
+       "block identity: first closed block survives later snapshot");
+    OK(runner, first && cmark_node_next(first) == second,
+       "block identity: second closed block survives later snapshot");
+
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // Continuation: feeding more bytes that complete the line must not
+  // double-count the partial-line content. The streamed final tree must
+  // match cmark_parse_document on the same byte sequence.
+  {
+    const char *input = "Hello, world\n";
+    size_t len = strlen(input);
+    cmark_node *one = cmark_parse_document(input, len, CMARK_OPT_DEFAULT);
+    char *xml_one = cmark_render_xml(one, CMARK_OPT_DEFAULT);
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "Hello", 5);
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, ", world\n", 8);
+    cmark_node *streamed = cmark_parser_finish(p);
+    char *xml_stream = cmark_render_xml(streamed, CMARK_OPT_DEFAULT);
+    STR_EQ(runner, xml_stream, xml_one,
+           "partial-line snapshot followed by line completion converges XML");
+    free(xml_one); free(xml_stream);
+    cmark_node_free(one); cmark_node_free(streamed);
+    cmark_parser_free(p);
+  }
+
+  // Snapshot is parser-owned and remains valid until the next feed/snapshot/
+  // finish; calling finish after a snapshot still yields a usable tree.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "Hello\n", 6);
+    cmark_node *snap = cmark_parser_snapshot(p);
+    OK(runner, snap != NULL, "snapshot is non-null");
+    cmark_node *doc = cmark_parser_finish(p);
+    OK(runner, doc != NULL, "finish after snapshot returns a tree");
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // Reverting a partial-line transaction after a snapshot with inline
+  // children must not write flag snapshots back into freed inline nodes.
+  // Normal builds exercise the sequence; ASan/UBSan builds catch the UAF.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "Hello\n", 6);
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, "=", 1);
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, "=", 1);
+    cmark_node *doc = cmark_parser_finish(p);
+    OK(runner, doc != NULL,
+       "partial-line revert after parsed inlines does not hit freed nodes");
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // Snapshot returns a tree with inline children populated. A closed
+  // emphasis becomes EMPH; an unclosed delimiter falls back to literal text.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "Hello *world*\n", 14);
+    cmark_node *snap = cmark_parser_snapshot(p);
+    cmark_node *para = cmark_node_first_child(snap);
+    OK(runner, para != NULL && cmark_node_get_type(para) == CMARK_NODE_PARAGRAPH,
+       "first child is a paragraph");
+    cmark_node *first_inline = cmark_node_first_child(para);
+    OK(runner, first_inline != NULL,
+       "snapshot populated inline children");
+    int saw_emph = 0;
+    for (cmark_node *c = first_inline; c; c = cmark_node_next(c)) {
+      if (cmark_node_get_type(c) == CMARK_NODE_EMPH)
+        saw_emph = 1;
+    }
+    OK(runner, saw_emph,
+       "closed *...* surfaces as CMARK_NODE_EMPH after snapshot");
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // When a [foo] reference is parsed before its definition arrives, the
+  // containing paragraph gets re-parsed once the definition is added.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "See [foo] for details\n\n", 23);
+    cmark_node *snap1 = cmark_parser_snapshot(p);
+    cmark_node *para = cmark_node_first_child(snap1);
+    OK(runner, para != NULL, "paragraph created");
+    int link_before = 0;
+    for (cmark_node *c = cmark_node_first_child(para); c;
+         c = cmark_node_next(c)) {
+      if (cmark_node_get_type(c) == CMARK_NODE_LINK) link_before = 1;
+    }
+    OK(runner, !link_before,
+       "[foo] is plain text before definition arrives");
+
+    cmark_parser_feed(p, "[foo]: http://example.com\n\n", 27);
+    cmark_node *snap2 = cmark_parser_snapshot(p);
+    cmark_node *para2 = cmark_node_first_child(snap2);
+    OK(runner, para2 == para,
+       "ref-resolved paragraph keeps pointer identity");
+    int link_after = 0;
+    const char *link_url = NULL;
+    for (cmark_node *c = cmark_node_first_child(para2); c;
+         c = cmark_node_next(c)) {
+      if (cmark_node_get_type(c) == CMARK_NODE_LINK) {
+        link_after = 1;
+        link_url = cmark_node_get_url(c);
+      }
+    }
+    OK(runner, link_after,
+       "[foo] re-parses as CMARK_NODE_LINK after definition arrives");
+    OK(runner, link_url && strcmp(link_url, "http://example.com") == 0,
+       "resolved link carries the correct URL");
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // S_finalize frees a ref-def-only paragraph that may still be on the
+  // dirty-blocks list (add_line marks every block dirty on append; we do
+  // not require a snapshot before the next feed). The next snapshot must
+  // not walk into freed memory.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "[foo]: http://example.com\n", 26);
+    cmark_parser_feed(p, "\n", 1); // close → paragraph freed
+    cmark_node *snap = cmark_parser_snapshot(p);
+    OK(runner, snap != NULL,
+       "snapshot survives a freed dirty paragraph (UAF regression)");
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // A tentative ref-def with a possible title continuation exercises the
+  // dirty-list revert path: the partial-line snapshot marks the paragraph
+  // dirty, the next feed reverts flags, then appends canonical bytes. The
+  // dirty list must never retain the same node twice or form a self-loop;
+  // otherwise the next snapshot can reprocess the block through stale list
+  // links or, after ref-def-only finalize frees it, walk freed memory.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    const char *def_line = "[foo]: /url\n";
+    const char *title = "   \"title\"";
+
+    cmark_parser_feed(p, def_line, strlen(def_line));
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, title, strlen(title));
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, "\n", 1);
+
+    cmark_node *dirty = p->feed.dirty_blocks_head;
+    OK(runner, dirty == NULL || dirty->dirty_next != dirty,
+       "dirty list has no self-loop after tentative ref-def title revert");
+    OK(runner, dirty == NULL ||
+               (dirty->flags & CMARK_NODE__INLINE_DIRTY) != 0,
+       "dirty list entries keep INLINE_DIRTY set after tentative revert");
+
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+
+  // process_inlines walks the tree with cmark_iter; the iterator caches
+  // first_child eagerly. If a snapshot-parsed block is later re-marked
+  // INLINE_DIRTY by ref resolution at finalize, the !already_parsed branch
+  // frees those children before the iterator advances. ASan/UBSan catch
+  // the dangling pointer; behavioral check that streamed XML matches
+  // one-shot also exercises the path.
+  {
+    const char *streamed_a = "See [foo].\n\n";
+    const char *streamed_b = "[foo]: http://example.com\n";
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%s%s", streamed_a, streamed_b);
+    char *expected = render_oneshot_xml(buf, strlen(buf), 0);
+
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, streamed_a, strlen(streamed_a));
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, streamed_b, strlen(streamed_b));
+    cmark_node *doc = cmark_parser_finish(p);
+    char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT);
+    STR_EQ(runner, xml, expected,
+           "ref-resolved-at-finish streamed XML matches one-shot XML");
+    free(xml); free(expected);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // cmark_parser_feed_reentrant injects bytes that are part of the document
+  // tree but must not corrupt the partial-line buffer of the outer feed.
+  // After "partial" + reentrant("complete\n\n") + " more\n\n", the linebuf
+  // for "partial" must still terminate cleanly. End-to-end check: finish
+  // returns without crashing and the resulting AST matches one-shot parse
+  // of the effective document order.
+  {
+    const char *expected_input = "complete\n\npartial more\n\n";
+    char *expected = render_oneshot_xml(expected_input,
+                                        strlen(expected_input), 0);
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "partial", 7);
+    cmark_parser_feed_reentrant(p, "complete\n\n", 10);
+    cmark_parser_feed(p, " more\n\n", 7);
+    cmark_node *doc = cmark_parser_finish(p);
+    OK(runner, doc != NULL, "feed_reentrant: finish returns a document");
+    char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT);
+    STR_EQ(runner, xml, expected,
+           "feed_reentrant streamed XML matches effective one-shot XML");
+    free(xml);
+    free(expected);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+
+  // Same as above, but with a live snapshot before the reentrant feed.
+  // feed_reentrant must first leave tentative snapshot state, otherwise the
+  // injected blocks are treated as tentative and get lost on the next feed.
+  {
+    const char *expected_input = "complete\n\npartial more\n\n";
+    char *expected = render_oneshot_xml(expected_input,
+                                        strlen(expected_input), 0);
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "partial", 7);
+    cmark_parser_snapshot(p);
+    cmark_parser_feed_reentrant(p, "complete\n\n", 10);
+    cmark_parser_feed(p, " more\n\n", 7);
+    cmark_node *doc = cmark_parser_finish(p);
+    OK(runner, doc != NULL,
+       "feed_reentrant after snapshot returns a document");
+    char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT);
+    STR_EQ(runner, xml, expected,
+           "feed_reentrant after snapshot streamed XML matches effective "
+           "one-shot XML");
+    free(xml);
+    free(expected);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+
+  // Feed bookkeeping must be quiescent in non-feed mode:
+  // cmark_parse_document and feed-only flows shouldn’t accumulate a dirty
+  // list. Otherwise plain parses pay overhead they should not.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_DEFAULT);
+    const char *input =
+        "First paragraph.\n\n"
+        "Second.\n\n"
+        "- list item 1\n"
+        "- list item 2\n\n";
+    cmark_parser_feed(p, input, strlen(input));
+    OK(runner, p->feed.dirty_blocks_head == NULL,
+       "dirty list empty in non-feed mode");
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // Re-parsing the same dirty block while [foo] is still unresolved must
+  // not accumulate duplicate (block, label) entries in pending_ref_users.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "See [foo]\n", 10);
+    cmark_parser_snapshot(p);
+    for (int i = 0; i < 30; ++i) {
+      cmark_parser_feed(p, "more\n", 5);
+      cmark_parser_snapshot(p);
+    }
+    int list_len = 0;
+    for (struct cmark_pending_ref_user *u =
+             p->feed.pending_ref_users_head; u; u = u->next) {
+      list_len++;
+    }
+    INT_EQ(runner, list_len, 1,
+           "pending_ref_users list stays bounded across re-parses");
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_parser_free(p);
+    cmark_node_free(doc);
+  }
+
+  // Tentative table morph allocates extension-owned opaque payloads. Revert
+  // must free those payloads before restoring the old `as` union bytes.
+  {
+    cmark_mem mem = {tracked_calloc, tracked_realloc, tracked_free};
+    tracked_alloc_reset();
+    cmark_gfm_core_extensions_ensure_registered();
+    cmark_parser *p = cmark_parser_new_with_mem(CMARK_OPT_FEED_AST, &mem);
+    attach_gfm_core_extensions(p);
+    cmark_parser_feed(p, "A | B\n", 6);
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, "--- | ---", 9);
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, "\n", 1);
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+    OK(runner, tracked_alloc_count == 0,
+       "tentative table morph frees extension opaque allocations "
+       "(remaining allocations: %zu, bytes: %zu)",
+       tracked_alloc_count, tracked_alloc_bytes);
+  }
+
+  // Snapshot idempotency: back-to-back snapshots without an intervening
+  // feed must (a) return the same tree, (b) not re-do the O(tree)
+  // tentative pass. We verify (a) structurally by comparing XML and (b)
+  // by checking that the underlying txn struct is the SAME pointer — a
+  // rebuild would have freed and re-allocated a fresh txn.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "Para with [foo] and ", 20);
+    cmark_node *snap1 = cmark_parser_snapshot(p);
+    char *xml1 = cmark_render_xml(snap1, CMARK_OPT_DEFAULT);
+    void *txn_after_first = (void *)p->feed.partial_txn;
+    OK(runner, txn_after_first != NULL,
+       "first snapshot leaves tentative txn open");
+
+    cmark_node *snap2 = cmark_parser_snapshot(p);
+    char *xml2 = cmark_render_xml(snap2, CMARK_OPT_DEFAULT);
+    void *txn_after_second = (void *)p->feed.partial_txn;
+
+    STR_EQ(runner, xml2, xml1,
+           "back-to-back snapshot returns identical XML");
+    OK(runner, txn_after_second == txn_after_first,
+       "back-to-back snapshot reuses prior tentative txn (no rebuild)");
+
+    // After feed, idempotency must invalidate. Next snapshot does work,
+    // visible as a new txn allocation reflecting the new content.
+    cmark_parser_feed(p, "more.\n", 6);
+    cmark_node *snap3 = cmark_parser_snapshot(p);
+    char *xml3 = cmark_render_xml(snap3, CMARK_OPT_DEFAULT);
+    OK(runner, strcmp(xml3, xml1) != 0,
+       "snapshot after feed reflects new content");
+
+    free(xml1);
+    free(xml2);
+    free(xml3);
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+
+  // Oneshot purity: when snapshot is never called, feed bookkeeping
+  // must remain quiescent. The oracle for feed-mode correctness is
+  // cmark_parse_document; if any feed-only mutation runs in oneshot
+  // the oracle is contaminated.
+  {
+    // Pure feed+finish (no OPT_FEED_AST, no snapshot) must leave feed
+    // state empty. This includes the paths most likely to incidentally
+    // touch feed-mode bookkeeping: ref-def extraction (try_eager_ref_extract
+    // gating), pending-ref registration (gated on OPT_FEED_AST), and
+    // tentative txn (only created by snapshot). Use a "use-before-def"
+    // document so pending-ref bookkeeping would fire if it were not gated.
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_DEFAULT);
+    const char *part1 = "See [x] here.\n\n";
+    const char *part2 = "[x]: http://x.example\n";
+    cmark_parser_feed(p, part1, strlen(part1));
+    cmark_parser_feed(p, part2, strlen(part2));
+    OK(runner, p->feed.dirty_blocks_head == NULL,
+       "feed without snapshot does not enqueue dirty blocks");
+    OK(runner, p->feed.partial_txn == NULL,
+       "feed without snapshot does not allocate a partial txn");
+    OK(runner, p->feed.pending_ref_users_head == NULL,
+       "feed without snapshot does not register pending-ref users");
+    cmark_node *doc = cmark_parser_finish(p);
+    OK(runner, doc != NULL, "feed+finish returns a document");
+
+    // Sanity vs. oracle: feed+finish output must be byte-identical to a
+    // single cmark_parse_document of the concatenated input. The "use-
+    // before-def" arrangement exercises the failure mode that would
+    // surface if feed bookkeeping had silently been doing something
+    // here — eager ref extract, pending-ref registration, snapshot
+    // tentative — any of which would change observable XML.
+    char *xml_streamed = cmark_render_xml(doc, CMARK_OPT_DEFAULT);
+    char concat[64];
+    snprintf(concat, sizeof(concat), "%s%s", part1, part2);
+    cmark_node *oracle = cmark_parse_document(concat, strlen(concat),
+                                              CMARK_OPT_DEFAULT);
+    char *xml_oracle = cmark_render_xml(oracle, CMARK_OPT_DEFAULT);
+    STR_EQ(runner, xml_streamed, xml_oracle,
+           "feed+finish output identical to cmark_parse_document oracle");
+    free(xml_streamed);
+    free(xml_oracle);
+    cmark_node_free(doc);
+    cmark_node_free(oracle);
+    cmark_parser_free(p);
+  }
+
+  // Inline incremental resume — when an open paragraph grows by appending a
+  // continuation line and the prior parse left the delim/bracket stacks
+  // empty (CLEAN_END), the canonical dirty drain reuses prior children
+  // and parses only the delta. We assert it's actually incremental by
+  // pinning the FIRST text node's pointer identity across the resume —
+  // a full reparse would free and recreate it.
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    // First feed completes a line so the paragraph block is materialized
+    // in canonical state with content "Hello\n".
+    cmark_parser_feed(p, "Hello\n", 6);
+    cmark_node *snap1 = cmark_parser_snapshot(p);
+    cmark_node *para = cmark_node_first_child(snap1);
+    OK(runner, para != NULL && cmark_node_get_type(para) == CMARK_NODE_PARAGRAPH,
+       "incremental: snap1 has a paragraph");
+    cmark_node *text_first_before = cmark_node_first_child(para);
+    OK(runner, text_first_before != NULL &&
+               cmark_node_get_type(text_first_before) == CMARK_NODE_TEXT &&
+               strcmp(cmark_node_get_literal(text_first_before), "Hello") == 0,
+       "incremental: first child is text 'Hello'");
+    OK(runner, (para->flags & CMARK_NODE__INLINE_CLEAN_END) != 0,
+       "incremental: paragraph parse marked CLEAN_END");
+
+    // Append a continuation line that adds a softbreak + new text run.
+    // The canonical dirty drain on the next snapshot must take the resume
+    // path; the first text node must be the same pointer afterwards.
+    cmark_parser_feed(p, " world\n", 7);
+    cmark_node *snap2 = cmark_parser_snapshot(p);
+    cmark_node *para2 = cmark_node_first_child(snap2);
+    OK(runner, para2 == para,
+       "incremental: paragraph pointer identity preserved");
+    cmark_node *text_first_after = cmark_node_first_child(para2);
+    OK(runner, text_first_after == text_first_before,
+       "incremental: first text node pointer preserved across resume "
+       "(would be freed by a full reparse)");
+
+    // Structural verification — the resume must produce the same tree as
+    // a fresh oneshot parse of the concatenated input.
+    char *xml_streamed = cmark_render_xml(snap2, CMARK_OPT_DEFAULT);
+    char *xml_oracle = render_oneshot_xml("Hello\n world\n", 13, 0);
+    STR_EQ(runner, xml_streamed, xml_oracle,
+           "incremental resume converges with oneshot for multi-line paragraph");
+    free(xml_streamed);
+    free(xml_oracle);
+
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+
+  // Resume must preserve SOURCEPOS across already-parsed prefixes. Skipping
+  // to start_offset without replaying newlines in the skipped prefix makes
+  // later children inherit the wrong subject line/column.
+  {
+    const char *input = "a\nb\nc\n";
+    cmark_node *oracle = cmark_parse_document(input, strlen(input),
+                                              CMARK_OPT_SOURCEPOS);
+    char *xml_oracle = cmark_render_xml(oracle, CMARK_OPT_SOURCEPOS);
+
+    cmark_parser *p =
+        cmark_parser_new(CMARK_OPT_FEED_AST | CMARK_OPT_SOURCEPOS);
+    cmark_parser_feed(p, "a\nb\n", 4);
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, "c\n", 2);
+    cmark_node *snap = cmark_parser_snapshot(p);
+    char *xml_streamed = cmark_render_xml(snap, CMARK_OPT_SOURCEPOS);
+
+    STR_EQ(runner, xml_streamed, xml_oracle,
+           "incremental inline resume preserves sourcepos across prefixes");
+
+    free(xml_streamed);
+    free(xml_oracle);
+    cmark_node_free(oracle);
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+
+  // Split-feed inline coverage: these cases all parse the first chunk into
+  // canonical inline children, then append more bytes to the same paragraph.
+  // Any syntax that can still reach back across that boundary must force a
+  // full reparse rather than append-only resume.
+  assert_split_snapshot_matches_oneshot(
+      runner, "[x\n", "](u)\n", CMARK_OPT_DEFAULT, 0,
+      "open link text across snapshots converges with oneshot");
+  assert_split_snapshot_matches_oneshot(
+      runner, "\"hello\n", "\"\n", CMARK_OPT_SMART, 0,
+      "smart quote delimiters across snapshots converge with oneshot");
+  assert_split_snapshot_matches_oneshot(
+      runner, "~~gone\n", "now~~\n", CMARK_OPT_DEFAULT, 1,
+      "GFM strikethrough delimiters across snapshots converge with oneshot");
+  assert_split_snapshot_matches_oneshot(
+      runner, "<a\n", "href=x>\n", CMARK_OPT_DEFAULT, 0,
+      "open HTML tag with multiline attributes converges with oneshot");
+  assert_split_snapshot_matches_oneshot(
+      runner, "[x](u\n", ")\n", CMARK_OPT_DEFAULT, 0,
+      "inline link destination across snapshots converges with oneshot");
+  assert_split_snapshot_matches_oneshot(
+      runner, "[x](u\n", "\"title\")\n", CMARK_OPT_DEFAULT, 0,
+      "inline link title across snapshots converges with oneshot");
+  assert_split_snapshot_matches_oneshot(
+      runner, "![x](u\n", ")\n", CMARK_OPT_DEFAULT, 0,
+      "inline image destination across snapshots converges with oneshot");
+  assert_split_snapshot_matches_oneshot(
+      runner, "Email ", "a@b.com\n", CMARK_OPT_DEFAULT, 1,
+      "GFM email autolink postprocess is visible in snapshots");
+
+  // Resume must NOT fire when the prior parse left an unclosed code span.
+  // A closing backtick in later input can reach back across the already-
+  // parsed prefix and rewrite literal text into a CODE node, so this case
+  // must fall back to a full reparse instead of append-only resume.
+  {
+    const char *input = "`code\n`\n";
+    char *xml_oracle = render_oneshot_xml(input, strlen(input), 0);
+
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "`code\n", 6);
+    cmark_parser_snapshot(p);
+    cmark_parser_feed(p, "`\n", 2);
+    cmark_node *snap = cmark_parser_snapshot(p);
+    char *xml_streamed = cmark_render_xml(snap, CMARK_OPT_DEFAULT);
+
+    STR_EQ(runner, xml_streamed, xml_oracle,
+           "open code span across snapshots converges with oneshot");
+
+    free(xml_streamed);
+    free(xml_oracle);
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+
+  // Resume must NOT fire when the prior parse left an open delimiter —
+  // a closing `*` in the new content can pair with the prefix's `*`
+  // and reorganize earlier inlines into an emph node, which is not
+  // expressible as an append. The CLEAN_END flag should be clear and
+  // the dirty drain must take the full-reparse path. We verify by the
+  // first text node being a NEW pointer post-feed (the old one was
+  // freed by full reparse).
+  {
+    cmark_parser *p = cmark_parser_new(CMARK_OPT_FEED_AST);
+    cmark_parser_feed(p, "open *star\n", 11);
+    cmark_node *snap1 = cmark_parser_snapshot(p);
+    cmark_node *para = cmark_node_first_child(snap1);
+    OK(runner, para != NULL && (para->flags & CMARK_NODE__INLINE_CLEAN_END) == 0,
+       "open `*` leaves stacks dirty — CLEAN_END not set");
+
+    cmark_parser_feed(p, "now closed*\n", 12);
+    cmark_node *snap2 = cmark_parser_snapshot(p);
+    char *xml_streamed = cmark_render_xml(snap2, CMARK_OPT_DEFAULT);
+    char *xml_oracle = render_oneshot_xml("open *star\nnow closed*\n", 23, 0);
+    STR_EQ(runner, xml_streamed, xml_oracle,
+           "open-emph case full-reparses correctly to oracle");
+    OK(runner, strstr(xml_streamed, "<emph>") != NULL,
+       "open-emph case: closing `*` does pair into <emph>");
+    free(xml_streamed);
+    free(xml_oracle);
+
+    cmark_node *doc = cmark_parser_finish(p);
+    cmark_node_free(doc);
+    cmark_parser_free(p);
+  }
+}
+
+// Differential validation: for a representative corpus of markdown inputs,
+// confirm that feed parse with snapshots-between-every-byte produces
+// the same AST/XML as one-shot parse for every prefix and final document.
+static void test_feed_convergence(test_batch_runner *runner) {
+  static const char *corpus[] = {
+    "Hello world\n",
+    "Hello\n=====\n",
+    "# Heading\n\nParagraph with *emphasis* and **strong**.\n",
+    "- item one\n- item two\n- item three\n",
+    "1. one\n2. two\n\n3. three (loose)\n",
+    "> blockquote line one\n> line two\n",
+    "```c\nint main(void){return 0;}\n```\n",
+    "    indented code\n    second line\n",
+    "Header 1 | Header 2\n--- | ---\nA | B\nC | D\n",
+    "See [foo] for more.\n\n[foo]: http://example.com \"title\"\n",
+    "First paragraph.\n\nSecond with `code` and a [link](http://x.com).\n",
+    "<p>raw html</p>\n\nThen prose.\n",
+    "Paragraph one.\nLine two of paragraph one.\n\nParagraph two.\n",
+    "Mix: **bold *nested italic* still bold** plain\n",
+    // Direction 3 edge cases:
+    //  - title-on-continuation-line. Eager extract MUST defer until full
+    //    title arrives, otherwise streamed-vs-oneshot diverges.
+    "[foo]: http://x.example\n   \"title here\"\n\nUse [foo].\n",
+    //  - multiple back-to-back defs. The first is provably bounded by the
+    //    second `[`, so eager extract should fire.
+    "[a]: http://a.example\n[b]: http://b.example\n\nSee [a] and [b].\n",
+    //  - def followed by non-title non-whitespace prose.
+    "[a]: http://a.example\nNot a title line.\n\nUsing [a].\n",
+    //  - unclosed emphasis spanning multiple lines, then closed.
+    "Open *star\nstill open\nnow closed*\n",
+  };
+  size_t n = sizeof(corpus) / sizeof(*corpus);
+
+  for (size_t i = 0; i < n; ++i) {
+    assert_feed_prefixes_match(runner, corpus[i], i, 0,
+                                    "commonmark");
+  }
+
+  // Same convergence guarantee with GFM extensions enabled — exercises the
+  // paragraph -> table morph and the strikethrough/autolink inline paths.
+  cmark_gfm_core_extensions_ensure_registered();
+  static const char *gfm_corpus[] = {
+    "Header 1 | Header 2\n--- | ---\nA | B\nC | D\n",
+    "A | B\n--- | ---\nhttps://github.com | www.github.com\n",
+    "Mix ~strike~ and **bold** text.\n",
+    "Visit https://example.com today.\n",
+    "Tasks:\n- [ ] todo\n- [x] done\n",
+  };
+  size_t gn = sizeof(gfm_corpus) / sizeof(*gfm_corpus);
+  for (size_t i = 0; i < gn; ++i) {
+    assert_feed_prefixes_match(runner, gfm_corpus[i], i, 1, "gfm");
+  }
+
+  // CMARK_OPT_FEED_AST equivalence: cmark_parse_document(input, 0)
+  // and cmark_parse_document(input, OPT_FEED_AST) must produce
+  // byte-identical output. The pristine path is the oracle for the
+  // feed path, so any divergence at this level is a feed-path bug
+  // — and it'd be invisible to the prefix-convergence tests above
+  // (those test snapshot ≡ oneshot of the prefix; this tests the entire
+  // pipeline through finish, which exercises tentative-revert + canonical
+  // finalize on a real document, not just snapshots).
+  for (size_t i = 0; i < n; ++i) {
+    char *xml_pristine = render_oneshot_xml(corpus[i], strlen(corpus[i]), 0);
+    cmark_node *feed_doc = cmark_parse_document(
+        corpus[i], strlen(corpus[i]), CMARK_OPT_FEED_AST);
+    char *xml_feed = cmark_render_xml(feed_doc, CMARK_OPT_DEFAULT);
+    STR_EQ(runner, xml_feed, xml_pristine,
+           "OPT_FEED_AST equivalence[%zu] commonmark", i);
+    free(xml_pristine);
+    free(xml_feed);
+    cmark_node_free(feed_doc);
+  }
+
+  // GFM equivalence: same idea but with extensions attached. This routes
+  // through cmark_parser_new + attach_gfm + feed + finish on both sides,
+  // since cmark_parse_document doesn't auto-attach extensions. The
+  // feed-mode parser is created with OPT_FEED_AST so its feed
+  // and finish use the feed-aware path; the pristine parser uses
+  // the default zero options so it stays on the oneshot path.
+  for (size_t i = 0; i < gn; ++i) {
+    char *xml_pristine = render_oneshot_xml(gfm_corpus[i],
+                                             strlen(gfm_corpus[i]), 1);
+
+    cmark_parser *feed_parser = cmark_parser_new(CMARK_OPT_FEED_AST);
+    attach_gfm_core_extensions(feed_parser);
+    cmark_parser_feed(feed_parser, gfm_corpus[i],
+                      strlen(gfm_corpus[i]));
+    cmark_node *feed_doc = cmark_parser_finish(feed_parser);
+    char *xml_feed = cmark_render_xml(feed_doc, CMARK_OPT_DEFAULT);
+
+    STR_EQ(runner, xml_feed, xml_pristine,
+           "OPT_FEED_AST equivalence[%zu] gfm", i);
+
+    free(xml_pristine);
+    free(xml_feed);
+    cmark_node_free(feed_doc);
+    cmark_parser_free(feed_parser);
+  }
+}
+
 #if !defined(_WIN32) || defined(__CYGWIN__)
 #  include <sys/time.h>
 static struct timeval _before, _after;
@@ -1156,6 +2175,8 @@ int main() {
   test_cplusplus(runner);
   test_safe(runner);
   test_feed_across_line_ending(runner);
+  test_feed_ast(runner);
+  test_feed_convergence(runner);
   test_pathological_regressions(runner);
   source_pos(runner);
   source_pos_inlines(runner);

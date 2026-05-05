@@ -550,12 +550,15 @@ CMARK_GFM_EXPORT void cmark_node_own(cmark_node *root);
 /**
  * ## Parsing
  *
- * Simple interface:
+ * Simple interface — parse a complete buffer in one call:
  *
  *     cmark_node *document = cmark_parse_document("Hello *world*", 13,
  *                                                 CMARK_OPT_DEFAULT);
  *
- * Streaming interface:
+ * Streaming interface — feed the parser input in chunks, then finish to
+ * obtain the tree. Useful when reading from a file or network without
+ * loading the whole input into memory. This is cmark's original
+ * input-streaming pattern; the tree is materialized only by `finish`:
  *
  *     cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
  *     FILE *fp = fopen("myfile.md", "rb");
@@ -567,6 +570,36 @@ CMARK_GFM_EXPORT void cmark_node_own(cmark_node *root);
  *     }
  *     document = cmark_parser_finish(parser);
  *     cmark_parser_free(parser);
+ *
+ * Live AST — observe and render the tree *while* it is still being fed,
+ * without calling `cmark_parser_finish`. Intended for rendering markdown
+ * produced incrementally (e.g. tokens from a language model).
+ *
+ * **Convergence.** For any byte prefix `B_k` of the eventual input, the tree
+ * returned by `cmark_parser_snapshot` after `feed(B_k)` is structurally
+ * equivalent to what `cmark_parse_document(B_k, ...)` would have produced —
+ * same blocks, same inlines, same reference resolutions. Footnote reference
+ * numbering is the only exception; it is finalized only by
+ * `cmark_parser_finish`.
+ *
+ * **Snapshot lifetime.** The returned root is owned by the parser and remains
+ * valid until the next call to `cmark_parser_feed`, `cmark_parser_snapshot`,
+ * or `cmark_parser_finish`. Treat each snapshot as the current view of the
+ * live tree; do not retain inline child pointers across snapshots.
+ *
+ *     // CMARK_OPT_FEED_AST is required: cmark_parser_snapshot returns
+ *     // NULL on parsers without it. OR in any other options you need.
+ *     cmark_parser *parser = cmark_parser_new(CMARK_OPT_FEED_AST);
+ *     for (;;) {
+ *         size_t n = read_next_chunk(buf, sizeof(buf));
+ *         if (n == 0) break;
+ *         cmark_parser_feed(parser, buf, n);
+ *         cmark_node *root = cmark_parser_snapshot(parser);
+ *         render(root);  // snapshot is parser-owned — do NOT free it.
+ *     }
+ *     cmark_node *document = cmark_parser_finish(parser); // caller-owned
+ *     cmark_parser_free(parser);
+ *     cmark_node_free(document);
  */
 
 /** Creates a new parser object.
@@ -593,6 +626,40 @@ void cmark_parser_feed(cmark_parser *parser, const char *buffer, size_t len);
  */
 CMARK_GFM_EXPORT
 cmark_node *cmark_parser_finish(cmark_parser *parser);
+
+/** Returns the current document tree without finalizing the parser.
+ *
+ * **Precondition:** the parser must have been created with
+ * `CMARK_OPT_FEED_AST`. Calling `cmark_parser_snapshot` on a parser
+ * without that option returns NULL — feed mode must be opted into
+ * explicitly at parser creation, never implicitly by calling this
+ * function. Without the flag, none of the bookkeeping snapshot relies
+ * on (dirty-block list, partial-line txn, pending-ref index) is
+ * populated, so a returned tree would be missing inline children for
+ * committed paragraphs and the partial-line tentative pass.
+ *
+ * The returned root is owned by the parser and remains valid until the
+ * next call to `cmark_parser_feed`, `cmark_parser_snapshot`, or
+ * `cmark_parser_finish`.
+ *
+ * The returned tree is structurally equivalent to
+ * `cmark_parse_document(bytes_so_far, ...)`. Trailing partial input
+ * (bytes after the last newline) is reflected as if a synthetic newline
+ * closed it, and is reverted on the next `feed`/`snapshot`/`finish` call
+ * so further input continues from canonical state.
+ *
+ * Pointer-stability rules:
+ *   - **Block nodes (paragraph, heading, list, code block, etc.) keep their
+ *     pointer identity** across snapshots — even when a block is rewritten
+ *     in place (paragraph → setext heading, paragraph → table, etc.).
+ *   - **Inline children are invalidated by every snapshot/feed/finish.**
+ *     Each call may free and re-parse a block's inline subtree (TEXT,
+ *     EMPH, CODE, LINK, etc.). Do not retain pointers to inline nodes
+ *     across these calls; consult them only between obtaining the snapshot
+ *     and the next call.
+ */
+CMARK_GFM_EXPORT
+cmark_node *cmark_parser_snapshot(cmark_parser *parser);
 
 /** Parse a CommonMark document in 'buffer' of length 'len'.
  * Returns a pointer to a tree of nodes.  The memory allocated for
@@ -767,6 +834,33 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  * a separate attribute.
  */
 #define CMARK_OPT_FULL_INFO_STRING (1 << 16)
+
+/** Opt the parser into feed-driven AST mode at creation. This is the
+ * **only** way to enable feed mode — `cmark_parser_snapshot` does not
+ * implicitly activate it and will return NULL if called on a parser
+ * created without this flag. Parser behavior is fixed at creation, never
+ * mutated implicitly by a later call.
+ *
+ * With this option:
+ *
+ *   - `cmark_parse_document` delegates to `cmark_parser_feed` +
+ *     `cmark_parser_finish`, exercising the same code path that
+ *     incremental token-fed callers use.
+ *   - Every `cmark_parser_feed` runs through the feed-aware path
+ *     (eager ref-extract, dirty-block tracking, partial-line txn
+ *     bookkeeping).
+ *   - `cmark_parser_snapshot` returns the current AST view at any time
+ *     between feeds.
+ *
+ * Without this option (the default), `cmark_parse_document` and
+ * `cmark_parser_feed` use the pristine one-shot path with zero feed
+ * bookkeeping overhead. `cmark_parser_snapshot` returns NULL.
+ *
+ * The pristine path is the behavioral oracle for the feed path: for the
+ * same input, both paths produce byte-identical final documents. This
+ * equivalence is asserted in the test suite.
+ */
+#define CMARK_OPT_FEED_AST (1 << 18)
 
 /**
  * ## Version information
