@@ -53,9 +53,27 @@ enum cmark_node__internal_flags {
   CMARK_NODE__LAST_LINE_BLANK = (1 << 1),
   CMARK_NODE__LAST_LINE_CHECKED = (1 << 2),
 
+  /**
+   * Feed: this block's inline content is dirty and must be re-parsed
+   * on the next snapshot. Internal use only.
+   */
+  CMARK_NODE__INLINE_DIRTY = (1 << 3),
+
+  /**
+   * Feed: the most recent `cmark_parse_inlines` call on this block
+   * ended with both the delimiter and bracket stacks empty at EOF (no
+   * unmatched `*`/`_`/`` ` ``/`[` left over). This is the precondition for
+   * incremental append-only resume: with empty stacks, no future byte can
+   * reach back and revise an already-emitted inline child. Cleared
+   * whenever a non-resumable mutation happens to the block (eager
+   * ref-extract drop, finalize content rewrite, manual inline_parsed_len
+   * reset). Internal use only.
+   */
+  CMARK_NODE__INLINE_CLEAN_END = (1 << 4),
+
   // Extensions can register custom flags by calling `cmark_register_node_flag`.
   // This is the starting value for the custom flags.
-  CMARK_NODE__REGISTER_FIRST = (1 << 3),
+  CMARK_NODE__REGISTER_FIRST = (1 << 5),
 };
 
 typedef uint16_t cmark_node_internal_flags;
@@ -108,6 +126,19 @@ struct cmark_node {
     int cell_index; // For keeping track of TABLE_CELL table alignments
     void *opaque;
   } as;
+
+  /**
+   * Feed: bytes of `content` already consumed by the most recent
+   * incremental inline parse. 0 means "never parsed" (the natural calloc
+   * value used by make_block). Internal use only.
+   */
+  bufsize_t inline_parsed_len;
+
+  /**
+   * Feed: intrusive next-pointer for the parser's dirty-block list.
+   * NULL when not on the list. Internal use only.
+   */
+  struct cmark_node *dirty_next;
 };
 
 /**

@@ -12,6 +12,7 @@
 #include "utf8.h"
 #include "scanners.h"
 #include "inlines.h"
+#include "feed.h"
 #include "syntax_extension.h"
 
 static const char *EMDASH = "\xE2\x80\x94";
@@ -63,6 +64,21 @@ typedef struct subject{
   bufsize_t backticks[MAXBACKTICKS + 1];
   bool scanned_for_backticks;
   bool no_link_openers;
+  // Feed: the block whose content this subject is parsing. Used to
+  // register pending-ref entries when an unresolved [label] is seen, so the
+  // block can be re-parsed once the definition arrives. NULL means "don't
+  // track" — preserves backwards-compatibility with non-feed callers.
+  cmark_node *block;
+  // Feed: set whenever this parse emits a special inline character as
+  // plain text because it didn't find its match (unmatched `*`/`_`
+  // delimiter, unclosed code-span backtick, `<` that didn't form a tag,
+  // `]` whose link parse fell through). Future bytes could reach back
+  // and pair with any of those — an arriving `*`, `` ` ``, `>`, or
+  // `(url)` could reorganize emitted children into <emph>, <code>,
+  // <html>, <link>. So the parse can't serve as a resume anchor for
+  // append-only incremental updates; cmark_parse_inlines_resume falls
+  // back to a full reparse instead. Single bool, accumulated bitwise.
+  bool had_unmatched;
 } subject;
 
 // Extensions may populate this.
@@ -102,6 +118,49 @@ static CMARK_INLINE cmark_node *make_simple(cmark_mem *mem, cmark_node_type t) {
   cmark_strbuf_init(mem, &e->content, 0);
   e->type = (uint16_t)t;
   return e;
+}
+
+// Convert any alloc=0 (view-into-source) chunks owned by `node` and its
+// inline descendants into alloc=1 (owned). Inline parsers emit literal /
+// link-url / link-title chunks as views into subj.input.data, which is
+// parent->content.data. That's free during a one-shot parse, but
+// feed-mode feeds append to parent->content and the strbuf may reallocate
+// — invalidating every view we left behind on prior children. The
+// canonical inline-parse contract is now: on return, every chunk on a
+// child node is either owned (alloc=1) or a view into a process-static
+// literal (alloc=0 with stable .data); never a view into a buffer the
+// caller might mutate. Idempotent on already-owned chunks.
+static void stabilize_inline_chunks(cmark_node *node, cmark_mem *mem) {
+  for (cmark_node *c = node->first_child; c != NULL; c = c->next) {
+    switch ((cmark_node_type)c->type) {
+    case CMARK_NODE_TEXT:
+    case CMARK_NODE_CODE:
+    case CMARK_NODE_HTML_INLINE:
+      if (c->as.literal.alloc == 0 && c->as.literal.len > 0) {
+        cmark_chunk_to_cstr(mem, &c->as.literal);
+      }
+      break;
+    case CMARK_NODE_LINK:
+    case CMARK_NODE_IMAGE:
+      if (c->as.link.url.alloc == 0 && c->as.link.url.len > 0)
+        cmark_chunk_to_cstr(mem, &c->as.link.url);
+      if (c->as.link.title.alloc == 0 && c->as.link.title.len > 0)
+        cmark_chunk_to_cstr(mem, &c->as.link.title);
+      stabilize_inline_chunks(c, mem);
+      break;
+    case CMARK_NODE_EMPH:
+    case CMARK_NODE_STRONG:
+    case CMARK_NODE_SOFTBREAK:
+    case CMARK_NODE_LINEBREAK:
+      stabilize_inline_chunks(c, mem);
+      break;
+    default:
+      // Unknown / extension inlines: still descend so any of their
+      // inline descendants we recognize get stabilized.
+      stabilize_inline_chunks(c, mem);
+      break;
+    }
+  }
 }
 
 // Like make_str, but parses entities.
@@ -200,6 +259,8 @@ static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, 
   }
   e->scanned_for_backticks = false;
   e->no_link_openers = true;
+  e->block = NULL;
+  e->had_unmatched = false;
 }
 
 static CMARK_INLINE int isbacktick(int c) { return (c == '`'); }
@@ -395,6 +456,11 @@ static cmark_node *handle_backticks(subject *subj, int options) {
 
   if (endpos == 0) {      // not found
     subj->pos = startpos; // rewind
+    // Feed: an unclosed backtick run becomes plain text, but a future
+    // byte sequence containing a matching backtick run could close it
+    // and reorganize the literal back into a CODE node. Mark the parse
+    // unsafe for append-only resume.
+    subj->had_unmatched = true;
     return make_str(subj, subj->pos, subj->pos, openticks);
   } else {
     cmark_strbuf buf = CMARK_BUF_INIT(subj->mem);
@@ -756,6 +822,11 @@ static void process_emphasis(cmark_parser *parser, subject *subj, bufsize_t stac
           // opener, once we've seen there's no
           // matching opener:
           remove_delimiter(subj, old_closer);
+          // Feed: an unmatched closer means a `*`/`_`-style sequence
+          // ended up as plain text. Mark the parse as not safe for
+          // append-only resume; cmark_parse_inlines_resume will fall
+          // back to a full reparse so future bytes pair correctly.
+          subj->had_unmatched = true;
         }
       }
     } else {
@@ -766,6 +837,13 @@ static void process_emphasis(cmark_parser *parser, subject *subj, bufsize_t stac
   while (subj->last_delim != NULL &&
          subj->last_delim->position >= stack_bottom) {
     remove_delimiter(subj, subj->last_delim);
+    // Feed: every drained delimiter here is an opener that never
+    // found a closer (process_emphasis would have paired it via
+    // S_insert_emph otherwise). Such an opener becomes plain text and a
+    // future closing `*`/`_` could reach back to pair with one of these,
+    // which would reorganize already-emitted inlines — so the parse
+    // can't be a resume anchor.
+    subj->had_unmatched = true;
   }
 }
 
@@ -1012,6 +1090,10 @@ static cmark_node *handle_pointy_brace(subject *subj, int options) {
   }
 
   // if nothing matches, just return the opening <:
+  // Feed: a `<` that didn't form a tag/autolink may be completed by a
+  // later byte sequence (multi-line HTML attributes, late `>`), so the
+  // parse is not safe for append-only resume.
+  subj->had_unmatched = true;
   return make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_literal("<"));
 }
 
@@ -1222,6 +1304,16 @@ static cmark_node *handle_close_bracket(cmark_parser *parser, subject *subj) {
 
   if (found_label) {
     ref = (cmark_reference *)cmark_map_lookup(subj->refmap, &raw_label);
+    // Feed: if the lookup missed, the block we're parsing depends on a
+    // definition that hasn't arrived yet. Register it so the block is
+    // marked inline-dirty when the def comes in (see feed.c). The
+    // helper copies raw_label, so it's safe to free below.
+    if (!ref && subj->block) {
+      cmark_parser *active = cmark_parser_feed_active_parser();
+      if (active && active->refmap == subj->refmap) {
+        cmark_parser_feed_add_pending_ref(active, raw_label, subj->block);
+      }
+    }
     cmark_chunk_free(subj->mem, &raw_label);
   }
 
@@ -1316,6 +1408,12 @@ noMatch:
 
   pop_bracket(subj); // remove this opener from delimiter list
   subj->pos = initial_pos;
+  // Feed: bracket close attempt that fell through to literal `]` — the
+  // `[…]( ` prefix didn't have a closing `)` available to form a link
+  // at parse time, but a later byte sequence containing the missing
+  // `)` could complete the link. Append-only resume can't reach back
+  // to retroactively form the link, so mark unsafe.
+  subj->had_unmatched = true;
   return make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_literal("]"));
 
 match:
@@ -1534,13 +1632,74 @@ void cmark_parse_inlines(cmark_parser *parser,
                          cmark_node *parent,
                          cmark_map *refmap,
                          int options) {
+  cmark_parse_inlines_resume(parser, parent, refmap, options, 0);
+}
+
+// Resume-aware inline parse. start_offset == 0 is the from-scratch path
+// (equivalent to cmark_parse_inlines). start_offset > 0 means parent's
+// existing children are stable up to that byte offset and the parser must
+// only process content[start_offset..] with empty delimiter/bracket stacks
+// — the caller has already verified that condition via the
+// CMARK_NODE__INLINE_CLEAN_END flag set by the previous parse. New children
+// produced are appended to parent's existing children list. The caller is
+// responsible for updating inline_parsed_len after this returns.
+void cmark_parse_inlines_resume(cmark_parser *parser,
+                                cmark_node *parent,
+                                cmark_map *refmap,
+                                int options,
+                                bufsize_t start_offset) {
   subject subj;
   cmark_chunk content = {parent->content.ptr, parent->content.size, 0};
   subject_from_buf(parser->mem, parent->start_line, parent->start_column - 1 + parent->internal_offset, &subj, &content, refmap);
+  // Feed: tell the inline parser which block it's working on, so it
+  // can register pending-ref users when [label] lookups miss.
+  subj.block = parent;
   cmark_chunk_rtrim(&subj.input);
+
+  // Resume: skip past the already-parsed prefix. The delimiter and bracket
+  // stacks were empty at the prior parse's EOF (CLEAN_END contract), so
+  // we begin with empty stacks here too — guaranteed correct because no
+  // delim/bracket was left dangling that this resume could reach back to
+  // close.
+  //
+  // Source-position state must be advanced to reflect the skipped
+  // prefix or every child produced by this resume call inherits
+  // subj.line == parent->start_line and column_offset == 0, putting them
+  // on the wrong line. The inline parser only updates these when it
+  // *consumes* a '\n' — bytes we skip via subj.pos contribute nothing.
+  // Walk the prefix here, count its newlines (each one bumps subj.line
+  // and resets the column origin to the byte after the newline, matching
+  // handle_newline's column_offset = -subj->pos), and seed subj before
+  // parse_inline runs on byte start_offset.
+  if (start_offset > 0 && start_offset <= subj.input.len) {
+    int prefix_newlines = 0;
+    bufsize_t after_last_nl = 0;
+    for (bufsize_t i = 0; i < start_offset; ++i) {
+      if (subj.input.data[i] == '\n') {
+        prefix_newlines++;
+        after_last_nl = i + 1;
+      }
+    }
+    subj.pos = start_offset;
+    subj.line += prefix_newlines;
+    if (prefix_newlines > 0) {
+      // First byte of the line containing subj.pos is at after_last_nl;
+      // column reported is pos + 1 + column_offset + block_offset, so
+      // column_offset = -after_last_nl puts the first byte on column
+      // 1 + block_offset, matching handle_newline's invariant.
+      subj.column_offset = -after_last_nl;
+    }
+  }
 
   while (!is_eof(&subj) && parse_inline(parser, &subj, parent, options))
     ;
+
+  // Capture leftover bracket state BEFORE the post-parse drain. An
+  // unmatched `[` left on the bracket stack at parse_inline EOF means
+  // some opener was committed as plain text without ever matching a `]`,
+  // and a future `]` could pair with one of those — making this parse
+  // unsafe as a resume anchor.
+  bool had_unmatched_bracket = (subj.last_bracket != NULL);
 
   process_emphasis(parser, &subj, 0);
   // free bracket and delim stack
@@ -1549,6 +1708,54 @@ void cmark_parse_inlines(cmark_parser *parser,
   }
   while (subj.last_bracket) {
     pop_bracket(&subj);
+  }
+
+  // Resume-safety contract: clean_end is true iff every special inline
+  // character this parse encountered (`*`, `_`, `` ` ``, `[`, `<`, …)
+  // was either fully matched into a closed inline structure, or never
+  // pushed to begin with. The `had_unmatched` flag is set by every
+  // fall-through-to-literal site (process_emphasis discarding a delim,
+  // handle_backticks with no closer, handle_pointy_brace with no tag,
+  // handle_close_bracket with no link), and `had_unmatched_bracket`
+  // catches a `[` left on the bracket stack. When clean_end is true,
+  // no future byte can revisit any child this parse emitted — they're
+  // all anchored on closed structure or pure plain text that doesn't
+  // contain any reach-back-vulnerable special chars. When false, some
+  // `*`/`_`/`` ` ``/`<`/`[` ended up as literal text and a future
+  // closing partner could rewrite the prior structure, so the parse
+  // can't be used as a resume anchor.
+  bool clean_end = !subj.had_unmatched && !had_unmatched_bracket;
+
+  // Contract: cmark_parse_inlines returns a tree whose adjacent text-node
+  // runs are already consolidated. The inline parser internally emits
+  // separate text nodes around delimiter candidates, escapes, and special
+  // chars; merging them here means callers (parser finalize, feed-mode
+  // dirty drain, extension postprocess) get a stable single-node-per-run
+  // tree without each having to remember to re-consolidate.
+  cmark_consolidate_text_nodes(parent);
+
+  // Feed-mode only: stabilize chunk ownership. Inline-parser primitives
+  // emit text/code/link chunks as views into parent->content (alloc=0).
+  // In feed mode, subsequent add_line calls grow parent->content and may
+  // reallocate its underlying strbuf, invalidating those views — so we
+  // copy each view chunk into owned memory (alloc=1) before returning.
+  //
+  // In one-shot parsing, parent->content's lifetime equals the node's
+  // lifetime (renderers consume the tree before either is freed), so
+  // alloc=0 views are safe and the copy would be pure overhead. The
+  // cmark-original streaming-input pattern (feed chunks + finish, no
+  // snapshot) goes through the same one-shot inline-parse pass at
+  // finalize_document, so it inherits the no-overhead path automatically
+  // — `(parser->options & CMARK_OPT_FEED_AST)` is false until either CMARK_OPT_FEED_AST
+  // or `cmark_parser_snapshot` activates feed mode.
+  if ((parser->options & CMARK_OPT_FEED_AST)) {
+    stabilize_inline_chunks(parent, parser->mem);
+  }
+
+  if (clean_end) {
+    parent->flags |= CMARK_NODE__INLINE_CLEAN_END;
+  } else {
+    parent->flags &= ~CMARK_NODE__INLINE_CLEAN_END;
   }
 }
 
@@ -1621,8 +1828,15 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
       return 0;
     }
   }
-  // insert reference into refmap
-  cmark_reference_create(refmap, &lab, &url, &title);
+  // Feed: a NULL refmap is a "dry run" — return the parsed length
+  // without committing to any map. Used by the eager-extract path in
+  // add_line to test whether the content currently spells a complete def
+  // before deciding whether it is safe to commit (no title-continuation
+  // could still extend it). All chunks parsed above are alloc=0 views into
+  // subj.input, so skipping the create call leaks nothing.
+  if (refmap != NULL) {
+    cmark_reference_create(refmap, &lab, &url, &title);
+  }
   return subj.pos;
 }
 

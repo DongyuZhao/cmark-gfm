@@ -16,6 +16,20 @@ void cmark_parse_inlines(cmark_parser *parser,
                          cmark_map *refmap,
                          int options);
 
+// Feed: resume-aware inline parse. start_offset > 0 indicates the
+// existing children of `parent` are stable up to that byte offset of
+// `parent->content`, and the parser should append children for
+// content[start_offset..] only. Caller must ensure
+// CMARK_NODE__INLINE_CLEAN_END was set by the prior parse before invoking
+// with a non-zero offset; otherwise the resume is unsafe (a delimiter
+// left dangling in the prefix could be closed by the new content).
+// start_offset == 0 is equivalent to cmark_parse_inlines (full reparse).
+void cmark_parse_inlines_resume(cmark_parser *parser,
+                                cmark_node *parent,
+                                cmark_map *refmap,
+                                int options,
+                                bufsize_t start_offset);
+
 bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
                                        cmark_map *refmap);
 
