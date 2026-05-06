@@ -80,7 +80,12 @@ static cmark_node *open_tasklist_item(cmark_syntax_extension *self,
     return NULL;
   }
 
-  bufsize_t matched = scan_tasklist(input, len, 0);
+  // The list marker has already been consumed by list parsing, so
+  // parser->first_nonspace points at the character after it. Scanning from
+  // there (rather than offset 0) lets us match task markers nested inside
+  // container blocks like block quotes, where the input still starts with
+  // the container's prefix.
+  bufsize_t matched = scan_tasklist(input, len, parser->first_nonspace);
   if (!matched) {
     return NULL;
   }
