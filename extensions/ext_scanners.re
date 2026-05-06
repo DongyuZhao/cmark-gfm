@@ -1,4 +1,3 @@
-/*!re2c re2c:flags:no-debug-info = 1; */
 /*!re2c re2c:indent:string = '  '; */
 
 #include <stdlib.h>
@@ -32,7 +31,7 @@ bufsize_t _ext_scan_at(bufsize_t (*scanner)(const unsigned char *), unsigned cha
   escaped_char = [\\][|!"#$%&'()*+,./:;<=>?@[\\\]^_`{}~-];
 
   table_marker = (spacechar*[:]?[-]+[:]?spacechar*);
-  table_cell = (escaped_char|[^|\r\n])+;
+  table_cell = (escaped_char|[^|\r\n\000])+;
 
   tasklist = spacechar*("-"|"+"|"*"|[0-9]+.)spacechar+("[ ]"|"[x]")spacechar+;
 */
