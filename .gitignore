@@ -30,8 +30,10 @@
 *.zip
 bstrlib.txt
 build
+build-asan
 cmark.dSYM/*
 cmark
+.cache
 .vscode
 .DS_Store
 
