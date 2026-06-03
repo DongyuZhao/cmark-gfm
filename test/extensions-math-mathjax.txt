@@ -1,0 +1,67 @@
+---
+title: MathJax math compatibility extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-05-09'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## MathJax math compatibility
+
+These examples define the MathJax delimiter surface supported by the `math`
+extension in addition to GitHub's documented `$` and `$$` forms.
+
+```````````````````````````````` example
+Inline \\(x+y\\) end.
+.
+<p>Inline <span class="math math-inline">\(x+y\)</span> end.</p>
+````````````````````````````````
+
+```````````````````````````````` example
+Display \\[x+y\\] end.
+.
+<p>Display <span class="math math-display">\[x+y\]</span> end.</p>
+````````````````````````````````
+
+```````````````````````````````` example
+\\[x+y\\]
+.
+<div class="math math-display">\[x+y\]</div>
+````````````````````````````````
+
+```````````````````````````````` example
+\\[
+x+y
+\\]
+.
+<div class="math math-display">\[x+y\]</div>
+````````````````````````````````
+
+```````````````````````````````` example
+Text $$x+y$$ end.
+.
+<p>Text <span class="math math-display">\[x+y\]</span> end.</p>
+````````````````````````````````
+
+Escaped backslash closers are body text, not delimiters.
+
+```````````````````````````````` example
+Text \\(a \) b\\) end.
+.
+<p>Text <span class="math math-inline">\(a ) b\)</span> end.</p>
+````````````````````````````````
+
+When a body contains the matching backslash delimiter, render with dollar
+delimiters so MathJax does not close early.
+
+```````````````````````````````` example
+Text $a\\)b$ end.
+.
+<p>Text <span class="math math-inline">$a\\)b$</span> end.</p>
+````````````````````````````````
+
+```````````````````````````````` example
+Text $$a\\]b$$ end.
+.
+<p>Text <span class="math math-display">$$a\\]b$$</span> end.</p>
+````````````````````````````````

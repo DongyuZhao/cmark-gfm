@@ -24,6 +24,8 @@ static const int num_node_types = sizeof(node_types) / sizeof(*node_types);
 static void test_md_to_html(test_batch_runner *runner, const char *markdown,
                             const char *expected_html, const char *msg);
 
+static cmark_node *parse_with_math_extension(const char *markdown);
+
 static void test_content(test_batch_runner *runner, cmark_node_type type,
                          unsigned int *allowed_content);
 
@@ -240,6 +242,117 @@ static void accessors(test_batch_runner *runner) {
   OK(runner, !cmark_node_set_list_start(bullet_list, -1),
      "set_list_start negative");
 
+  cmark_node_free(doc);
+}
+
+static cmark_node *parse_with_math_extension(const char *markdown) {
+  cmark_gfm_core_extensions_ensure_registered();
+
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
+  cmark_syntax_extension *math = cmark_find_syntax_extension("math");
+
+  if (math) {
+    cmark_parser_attach_syntax_extension(parser, math);
+  }
+
+  cmark_parser_feed(parser, markdown, strlen(markdown));
+  cmark_node *doc = cmark_parser_finish(parser);
+  cmark_parser_free(parser);
+
+  return doc;
+}
+
+static void math_extension_accessors(test_batch_runner *runner) {
+  cmark_node *doc = parse_with_math_extension("Inline $x+y$ end.\n");
+  cmark_node *paragraph = cmark_node_first_child(doc);
+  cmark_node *math = cmark_node_next(cmark_node_first_child(paragraph));
+
+  STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
+         "math inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
+         "math inline literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
+         CMARK_MATH_MODE_EMBEDDED, "math inline mode is embedded");
+  INT_EQ(runner, cmark_gfm_extensions_set_math_literal(math, "z"), 1,
+         "set math literal succeeds");
+  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "z",
+         "math literal setter updates payload");
+  INT_EQ(runner, cmark_gfm_extensions_set_math_mode(
+                     math, CMARK_MATH_MODE_STANDALONE),
+         1, "set math mode succeeds");
+  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
+         CMARK_MATH_MODE_STANDALONE, "math mode setter updates mode");
+  INT_EQ(runner, cmark_gfm_extensions_set_math_literal(paragraph, "nope"), 0,
+         "set math literal rejects non-math nodes");
+  INT_EQ(runner, cmark_gfm_extensions_set_math_mode(
+                     paragraph, CMARK_MATH_MODE_EMBEDDED),
+         0, "set math mode rejects non-math nodes");
+  OK(runner, cmark_gfm_extensions_get_math_literal(paragraph) == NULL,
+     "get math literal rejects non-math nodes");
+  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(paragraph),
+         CMARK_MATH_MODE_NONE, "get math mode rejects non-math nodes");
+  cmark_node_free(doc);
+
+  doc = parse_with_math_extension("$$x+y$$\n");
+  math = cmark_node_first_child(doc);
+  STR_EQ(runner, cmark_node_get_type_string(math), "math_block",
+         "standalone math block type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
+         "standalone math block literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
+         CMARK_MATH_MODE_STANDALONE, "math block mode is standalone");
+  cmark_node_free(doc);
+
+  doc = parse_with_math_extension("Display $$a+b$$ end.\n");
+  paragraph = cmark_node_first_child(doc);
+  math = cmark_node_next(cmark_node_first_child(paragraph));
+  STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
+         "standalone math inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "a+b",
+         "standalone math inline literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
+         CMARK_MATH_MODE_STANDALONE, "math inline mode is standalone");
+  cmark_node_free(doc);
+
+  doc = parse_with_math_extension("Inline \\\\(x+y\\\\) end.\n");
+  paragraph = cmark_node_first_child(doc);
+  math = cmark_node_next(cmark_node_first_child(paragraph));
+  STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
+         "MathJax embedded math inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
+         "MathJax embedded math inline literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
+         CMARK_MATH_MODE_EMBEDDED, "MathJax math inline mode is embedded");
+  cmark_node_free(doc);
+
+  doc = parse_with_math_extension("Display \\\\[x+y\\\\] end.\n");
+  paragraph = cmark_node_first_child(doc);
+  math = cmark_node_next(cmark_node_first_child(paragraph));
+  STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
+         "MathJax standalone math inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
+         "MathJax standalone math inline literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
+         CMARK_MATH_MODE_STANDALONE,
+         "MathJax math inline mode is standalone");
+  cmark_node_free(doc);
+
+  doc = parse_with_math_extension("\\\\[x+y\\\\]\n");
+  math = cmark_node_first_child(doc);
+  STR_EQ(runner, cmark_node_get_type_string(math), "math_block",
+         "MathJax standalone math block type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
+         "MathJax standalone math block literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
+         CMARK_MATH_MODE_STANDALONE, "MathJax math block mode is standalone");
+  cmark_node_free(doc);
+
+  doc = parse_with_math_extension("```math\nx+y\n```\n");
+  math = cmark_node_first_child(doc);
+  STR_EQ(runner, cmark_node_get_type_string(math), "math_block",
+         "math fence becomes standalone block");
+  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
+         "math fence literal is trimmed");
   cmark_node_free(doc);
 }
 
@@ -1137,6 +1250,7 @@ int main() {
   version(runner);
   constructor(runner);
   accessors(runner);
+  math_extension_accessors(runner);
   node_check(runner);
   iterator(runner);
   iterator_delete(runner);

@@ -1,0 +1,59 @@
+---
+title: GitHub math compatibility extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-05-09'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## GitHub math compatibility
+
+These examples define the GitHub Docs mathematical-expression surface supported
+by the `math` extension. The HTML wrapper is cmark-gfm's stable representation;
+the wrapped delimiter/body text is the payload handed to MathJax/KaTeX.
+
+```````````````````````````````` example
+Inline $x+y$ end.
+.
+<p>Inline <span class="math math-inline">\(x+y\)</span> end.</p>
+````````````````````````````````
+
+GitHub's `$`...`$` form treats the backticks as math delimiters, not as body
+bytes.
+
+```````````````````````````````` example
+Inline $`x+y`$ end.
+.
+<p>Inline <span class="math math-inline">\(x+y\)</span> end.</p>
+````````````````````````````````
+
+```````````````````````````````` example
+Escaped dollar $`\sqrt{\$4}`$ end.
+.
+<p>Escaped dollar <span class="math math-inline">\(\sqrt{\$4}\)</span> end.</p>
+````````````````````````````````
+
+```````````````````````````````` example
+$$x+y$$
+.
+<div class="math math-display">\[x+y\]</div>
+````````````````````````````````
+
+```````````````````````````````` example
+$$
+x+y
+$$
+.
+<div class="math math-display">\[x+y\]</div>
+````````````````````````````````
+
+GitHub's ```math fenced-code form is a math block; the fence delimiters and
+`math` info string are not part of the math body.
+
+```````````````````````````````` example
+```math
+x+y
+```
+.
+<div class="math math-display">\[x+y\]</div>
+````````````````````````````````

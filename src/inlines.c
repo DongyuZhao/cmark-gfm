@@ -1467,7 +1467,9 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
     new_inl = handle_backticks(subj, options);
     break;
   case '\\':
-    new_inl = handle_backslash(parser, subj);
+    new_inl = try_extensions(parser, parent, c, subj);
+    if (new_inl == NULL)
+      new_inl = handle_backslash(parser, subj);
     break;
   case '&':
     new_inl = handle_entity(subj);
