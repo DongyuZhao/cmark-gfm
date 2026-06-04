@@ -109,6 +109,15 @@ IF (PYTHONINTERP_FOUND)
     "--extensions" "ms_copilot_citation"
     )
 
+  add_test(ms_copilot_accordion_extension_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
+    "--no-normalize"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-ms-copilot-accordion.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
+    "--extensions" "ms_copilot_accordion"
+    )
+
   add_test(roundtrip_extensions_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/roundtrip_tests.py"

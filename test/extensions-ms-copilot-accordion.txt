@@ -1,0 +1,120 @@
+---
+title: MS Copilot accordion extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-06-03'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## MS Copilot accordion
+
+The MS Copilot accordion extension recognizes `details` elements with a
+`summary` child. The `summary` content is parsed into a `header` child, and the
+remaining `details` content is parsed into a `content` child.
+
+```````````````````````````````` example
+<details>
+<summary>Title</summary>
+Body
+</details>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <ms-copilot-accordion>
+    <header>
+      <text xml:space="preserve">Title</text>
+    </header>
+    <content>
+      <paragraph>
+        <text xml:space="preserve">Body</text>
+      </paragraph>
+    </content>
+  </ms-copilot-accordion>
+</document>
+````````````````````````````````
+
+Summary content is parsed as inline markdown, and details content is parsed as
+block markdown.
+
+```````````````````````````````` example
+<details>
+<summary>**Title** text</summary>
+Before
+
+- one
+- two
+</details>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <ms-copilot-accordion>
+    <header>
+      <strong>
+        <text xml:space="preserve">Title</text>
+      </strong>
+      <text xml:space="preserve"> text</text>
+    </header>
+    <content>
+      <paragraph>
+        <text xml:space="preserve">Before</text>
+      </paragraph>
+      <list type="bullet" tight="true">
+        <item>
+          <paragraph>
+            <text xml:space="preserve">one</text>
+          </paragraph>
+        </item>
+        <item>
+          <paragraph>
+            <text xml:space="preserve">two</text>
+          </paragraph>
+        </item>
+      </list>
+    </content>
+  </ms-copilot-accordion>
+</document>
+````````````````````````````````
+
+Nested `details` elements are parsed as nested accordions in content.
+
+```````````````````````````````` example
+<details>
+<summary>Outer</summary>
+Intro
+<details>
+<summary>Inner</summary>
+Nested body
+</details>
+Outro
+</details>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <ms-copilot-accordion>
+    <header>
+      <text xml:space="preserve">Outer</text>
+    </header>
+    <content>
+      <paragraph>
+        <text xml:space="preserve">Intro</text>
+      </paragraph>
+      <ms-copilot-accordion>
+        <header>
+          <text xml:space="preserve">Inner</text>
+        </header>
+        <content>
+          <paragraph>
+            <text xml:space="preserve">Nested body</text>
+          </paragraph>
+        </content>
+      </ms-copilot-accordion>
+      <paragraph>
+        <text xml:space="preserve">Outro</text>
+      </paragraph>
+    </content>
+  </ms-copilot-accordion>
+</document>
+````````````````````````````````

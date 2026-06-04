@@ -3,6 +3,7 @@ set(STATICLIBRARY "libcmark-gfm-extensions_static")
 set(LIBRARY_SOURCES
     core-extensions.c
     table.c
+    ms_copilot_accordion.c
     ms_copilot_citation.c
     strikethrough.c
     autolink.c
