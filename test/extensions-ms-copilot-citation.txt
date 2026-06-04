@@ -1,0 +1,122 @@
+---
+title: MS Copilot citation extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-06-03'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## MS Copilot citation
+
+The MS Copilot citation extension recognizes fullwidth bracket citations and
+stores the bracket body as the node's `ref` attribute.
+
+```````````````````````````````` example
+Cite 【smith-2024】 today.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Cite </text>
+    <ms_copilot_citation ref="smith-2024" />
+    <text xml:space="preserve"> today.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+The bang form recognizes the same citation ref.
+
+```````````````````````````````` example
+Cite !【smith-2024】 today.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Cite </text>
+    <ms_copilot_citation ref="smith-2024" />
+    <text xml:space="preserve"> today.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+Adjacent citations separated by ordinary text are recognized independently.
+
+```````````````````````````````` example
+【a】b【c】
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <ms_copilot_citation ref="a" />
+    <text xml:space="preserve">b</text>
+    <ms_copilot_citation ref="c" />
+  </paragraph>
+</document>
+````````````````````````````````
+
+Paired citation brackets can appear inside the ref.
+
+```````````````````````````````` example
+Cite 【outer 【inner】 ref】 today.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Cite </text>
+    <ms_copilot_citation ref="outer 【inner】 ref" />
+    <text xml:space="preserve"> today.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+Code spans bind before citation delimiters.
+
+```````````````````````````````` example
+Code `【smith-2024】` and cite 【smith-2024】.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Code </text>
+    <code xml:space="preserve">【smith-2024】</code>
+    <text xml:space="preserve"> and cite </text>
+    <ms_copilot_citation ref="smith-2024" />
+    <text xml:space="preserve">.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+Citation grouping binds more tightly than emphasis delimiters.
+
+```````````````````````````````` example
+*【smith*】 citation.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">*</text>
+    <ms_copilot_citation ref="smith*" />
+    <text xml:space="preserve"> citation.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+Unmatched citation delimiters remain literal text.
+
+```````````````````````````````` example
+Cite 【missing.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Cite 【missing.</text>
+  </paragraph>
+</document>
+````````````````````````````````

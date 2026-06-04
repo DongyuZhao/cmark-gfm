@@ -1498,6 +1498,10 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
     new_inl = handle_close_bracket(parser, subj);
     break;
   case '!':
+    new_inl = try_extensions(parser, parent, c, subj);
+    if (new_inl != NULL)
+      break;
+
     advance(subj);
     if (peek_char(subj) == '[' && peek_char_n(subj, 1) != '^') {
       advance(subj);

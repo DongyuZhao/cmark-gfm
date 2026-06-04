@@ -100,6 +100,15 @@ IF (PYTHONINTERP_FOUND)
     "--extensions" "math"
     )
 
+  add_test(ms_copilot_citation_extension_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
+    "--no-normalize"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-ms-copilot-citation.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
+    "--extensions" "ms_copilot_citation"
+    )
+
   add_test(roundtrip_extensions_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/roundtrip_tests.py"
@@ -138,4 +147,3 @@ ELSE(PYTHONINTERP_FOUND)
     echo "Skipping spec tests, because no python 3 interpreter is available.")
 
 ENDIF(PYTHONINTERP_FOUND)
-

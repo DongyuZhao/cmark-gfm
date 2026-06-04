@@ -74,6 +74,16 @@ CMARK_GFM_EXPORT
 int cmark_gfm_extensions_set_math_mode(cmark_node *node,
                                        cmark_math_mode mode);
 
+/** Returns the citation ref payload for MS Copilot citation extension nodes, or NULL on error.
+ */
+CMARK_GFM_EXPORT
+const char *cmark_gfm_extensions_get_ms_copilot_citation_ref(cmark_node *node);
+
+/** Sets the citation ref payload for MS Copilot citation extension nodes, returning 1 on success and 0 on error.
+ */
+CMARK_GFM_EXPORT
+int cmark_gfm_extensions_set_ms_copilot_citation_ref(cmark_node *node, const char *ref);
+
 #ifdef __cplusplus
 }
 #endif
