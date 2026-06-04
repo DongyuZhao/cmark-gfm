@@ -163,20 +163,22 @@ static int parse_details_match(const unsigned char *data, bufsize_t len,
   details->start = start;
   details->open_end = tag_end;
 
-  if (!find_details_close(data, len, tag_end, &details->close_start,
-                          &details->close_end))
-    return 0;
-
-  summary_start = skip_spaces(data, details->close_start, tag_end);
-  if (!match_tag(data, details->close_start, summary_start, "summary", 0,
+  summary_start = skip_spaces(data, len, tag_end);
+  if (!match_tag(data, len, summary_start, "summary", 0,
                  &details->summary_open_end))
     return 0;
 
   if (!find_summary_close(data, len, details->summary_open_end,
-                          details->close_start,
+                          len,
                           &details->summary_close_start,
                           &details->summary_close_end))
     return 0;
+
+  if (!find_details_close(data, len, details->summary_close_end,
+                          &details->close_start, &details->close_end)) {
+    details->close_start = len;
+    details->close_end = len;
+  }
 
   return 1;
 }
@@ -210,11 +212,25 @@ static int parse_partial_details_match(const unsigned char *data,
 
 static int find_next_details(const unsigned char *data, bufsize_t len,
                              bufsize_t start, details_match *details) {
-  bufsize_t pos;
+  bufsize_t pos = start;
+  bufsize_t tag_end;
 
-  for (pos = start; pos < len; pos++) {
+  while (pos < len) {
+    while (pos < len && data[pos] != '<')
+      pos++;
+
+    if (pos >= len)
+      break;
+
+    if (!match_tag(data, len, pos, "details", 0, &tag_end)) {
+      pos++;
+      continue;
+    }
+
     if (parse_details_match(data, len, pos, details))
       return 1;
+
+    pos = tag_end;
   }
 
   return 0;
@@ -459,14 +475,52 @@ static int replace_html_block(cmark_syntax_extension *extension,
   return 1;
 }
 
-static int has_closing_details_sibling(cmark_node *start) {
-  cmark_node *node;
+static int scan_details_depth(const unsigned char *data, bufsize_t len,
+                              int *depth, bufsize_t *close_start,
+                              bufsize_t *close_end) {
+  bufsize_t pos = 0;
   bufsize_t tag_end;
+
+  while (pos < len) {
+    while (pos < len && data[pos] != '<')
+      pos++;
+
+    if (pos >= len)
+      break;
+
+    if (match_tag(data, len, pos, "details", 0, &tag_end)) {
+      (*depth)++;
+      pos = tag_end;
+      continue;
+    }
+
+    if (match_tag(data, len, pos, "details", 1, &tag_end)) {
+      (*depth)--;
+      if (*depth == 0) {
+        *close_start = pos;
+        *close_end = tag_end;
+        return 1;
+      }
+      pos = tag_end;
+      continue;
+    }
+
+    pos++;
+  }
+
+  return 0;
+}
+
+static int has_matching_closing_details_sibling(cmark_node *start) {
+  cmark_node *node;
+  bufsize_t close_start;
+  bufsize_t close_end;
+  int depth = 1;
 
   for (node = start->next; node; node = node->next) {
     if (node->type == CMARK_NODE_HTML_BLOCK &&
-        match_tag(node->as.literal.data, node->as.literal.len, 0, "details", 1,
-                  &tag_end))
+        scan_details_depth(node->as.literal.data, node->as.literal.len, &depth,
+                           &close_start, &close_end))
       return 1;
   }
 
@@ -481,7 +535,9 @@ static int replace_partial_html_block(cmark_syntax_extension *extension,
   cmark_node *content = NULL;
   cmark_node *current;
   cmark_node *next;
-  bufsize_t tag_end;
+  bufsize_t close_start;
+  bufsize_t close_end;
+  int depth = 1;
 
   if (node->type != CMARK_NODE_HTML_BLOCK || node->as.literal.len == 0)
     return 0;
@@ -490,7 +546,7 @@ static int replace_partial_html_block(cmark_syntax_extension *extension,
                                    0, &details))
     return 0;
 
-  if (!has_closing_details_sibling(node))
+  if (!has_matching_closing_details_sibling(node))
     return 0;
 
   accordion =
@@ -506,19 +562,20 @@ static int replace_partial_html_block(cmark_syntax_extension *extension,
     next = current->next;
 
     if (current != node && current->type == CMARK_NODE_HTML_BLOCK &&
-        match_tag(current->as.literal.data, current->as.literal.len, 0,
-                  "details", 1, &tag_end)) {
+        scan_details_depth(current->as.literal.data, current->as.literal.len,
+                           &depth, &close_start, &close_end)) {
       append_markdown_blocks(extension, parser, content,
-                             current->as.literal.data + tag_end,
-                             current->as.literal.len - tag_end);
+                             current->as.literal.data, close_start);
+      append_markdown_blocks(extension, parser, content,
+                             current->as.literal.data + close_end,
+                             current->as.literal.len - close_end);
       cmark_node_free(current);
+      postprocess_node(extension, parser, content);
       *next_after = next;
       return 1;
     }
 
     if (current != node) {
-      cmark_node_unlink(current);
-      postprocess_node(extension, parser, current);
       cmark_node_append_child(content, current);
     } else {
       cmark_node_free(current);

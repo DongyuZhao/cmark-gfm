@@ -118,3 +118,86 @@ Outro
   </ms-copilot-accordion>
 </document>
 ````````````````````````````````
+
+Nested `details` elements split across sibling blocks preserve the outer
+accordion until the matching outer close.
+
+```````````````````````````````` example
+<details>
+<summary>Outer</summary>
+Before
+
+<details>
+<summary>Inner</summary>
+Nested
+</details>
+
+After
+</details>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <ms-copilot-accordion>
+    <header>
+      <text xml:space="preserve">Outer</text>
+    </header>
+    <content>
+      <paragraph>
+        <text xml:space="preserve">Before</text>
+      </paragraph>
+      <ms-copilot-accordion>
+        <header>
+          <text xml:space="preserve">Inner</text>
+        </header>
+        <content>
+          <paragraph>
+            <text xml:space="preserve">Nested</text>
+          </paragraph>
+        </content>
+      </ms-copilot-accordion>
+      <paragraph>
+        <text xml:space="preserve">After</text>
+      </paragraph>
+    </content>
+  </ms-copilot-accordion>
+</document>
+````````````````````````````````
+
+Unclosed `details` elements are closed at the raw HTML block boundary.
+
+```````````````````````````````` example
+<details>
+<summary>Title</summary>
+Body
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <ms-copilot-accordion>
+    <header>
+      <text xml:space="preserve">Title</text>
+    </header>
+    <content>
+      <paragraph>
+        <text xml:space="preserve">Body</text>
+      </paragraph>
+    </content>
+  </ms-copilot-accordion>
+</document>
+````````````````````````````````
+
+Missing `summary` closes are left as raw HTML.
+
+```````````````````````````````` example
+<details>
+<summary>Broken
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <html_block xml:space="preserve">&lt;details&gt;
+&lt;summary&gt;Broken
+</html_block>
+</document>
+````````````````````````````````
