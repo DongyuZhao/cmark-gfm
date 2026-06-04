@@ -2,6 +2,8 @@ SRCDIR=src
 EXTDIR=extensions
 DATADIR=data
 BUILDDIR?=build
+ASAN_BUILDDIR?=build-asan
+ASAN_OPTIONS?=halt_on_error=1:abort_on_error=1:detect_leaks=0
 GENERATOR?=Unix Makefiles
 MINGW_BUILDDIR?=build-mingw
 MINGW_INSTALLDIR?=windows
@@ -25,7 +27,7 @@ CLANG_CHECK?=clang-check
 CLANG_FORMAT=clang-format -style llvm -sort-includes=0 -i
 AFL_PATH?=/usr/local/bin
 
-.PHONY: all cmake_build leakcheck clean fuzztest test debug ubsan asan mingw archive newbench bench format update-spec afl clang-check docker libFuzzer
+.PHONY: all cmake_build leakcheck clean fuzztest test debug ubsan asan asan-test mingw archive newbench bench format update-spec afl clang-check docker libFuzzer
 
 all: cmake_build man/man3/cmark-gfm.3
 
@@ -65,6 +67,12 @@ asan:
 	cd $(BUILDDIR); \
 	cmake .. -DCMAKE_BUILD_TYPE=Asan; \
 	$(MAKE)
+
+asan-test:
+	mkdir -p $(ASAN_BUILDDIR)
+	cd $(ASAN_BUILDDIR) && cmake .. -G "$(GENERATOR)" $(CMAKE_OPTIONS) -DCMAKE_BUILD_TYPE=Asan -DCMARK_SHARED=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+	cmake --build $(ASAN_BUILDDIR)
+	cd $(ASAN_BUILDDIR) && ASAN_OPTIONS="$(ASAN_OPTIONS)" ctest --output-on-failure
 
 prof:
 	mkdir -p $(BUILDDIR); \
