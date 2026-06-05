@@ -109,6 +109,12 @@ IF (PYTHONINTERP_FOUND)
     "--extensions" "ms_copilot_citation"
     )
 
+  add_test(inline_delimiter_stack_tests_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/inline_delimiter_stack_tests.py"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
+    )
+
   add_test(ms_copilot_accordion_extension_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
@@ -116,6 +122,12 @@ IF (PYTHONINTERP_FOUND)
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-ms-copilot-accordion.txt"
     "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
     "--extensions" "ms_copilot_accordion"
+    )
+
+  add_test(ms_copilot_accordion_depth_limit_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/ms_copilot_accordion_depth_limit.py"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
     )
 
   add_test(roundtrip_extensions_executable

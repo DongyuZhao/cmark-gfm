@@ -201,3 +201,33 @@ Missing `summary` closes are left as raw HTML.
 </html_block>
 </document>
 ````````````````````````````````
+
+Content after a partial accordion's closing `details` tag stays outside the
+accordion.
+
+```````````````````````````````` example
+<details>
+<summary>Title</summary>
+Body
+
+</details>
+After
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <ms-copilot-accordion>
+    <header>
+      <text xml:space="preserve">Title</text>
+    </header>
+    <content>
+      <paragraph>
+        <text xml:space="preserve">Body</text>
+      </paragraph>
+    </content>
+  </ms-copilot-accordion>
+  <paragraph>
+    <text xml:space="preserve">After</text>
+  </paragraph>
+</document>
+````````````````````````````````

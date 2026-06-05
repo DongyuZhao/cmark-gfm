@@ -25,6 +25,7 @@ static const unsigned char MS_COPILOT_CITATION_OPEN[] =
 static const unsigned char MS_COPILOT_CITATION_CLOSE[] =
     MS_COPILOT_CITATION_CLOSE_STR;
 #define MS_COPILOT_CITATION_DELIM_LEN 3
+#define MS_COPILOT_CITATION_DELIM 7
 
 static int is_ms_copilot_citation_node(cmark_node *node) {
   return node && node->type == CMARK_NODE_MS_COPILOT_CITATION;
@@ -104,88 +105,57 @@ static int starts_with(const unsigned char *data, bufsize_t len, bufsize_t pos,
          memcmp(data + pos, delim, MS_COPILOT_CITATION_DELIM_LEN) == 0;
 }
 
-static bufsize_t skip_matched_code_span(const unsigned char *data,
-                                        bufsize_t len, bufsize_t pos) {
-  bufsize_t opener_len = 0;
-  bufsize_t i;
-
-  while (pos + opener_len < len && data[pos + opener_len] == '`')
-    opener_len++;
-
-  i = pos + opener_len;
-  while (i < len) {
-    bufsize_t closer_len = 0;
-
-    if (data[i] != '`') {
-      i++;
-      continue;
-    }
-
-    while (i + closer_len < len && data[i + closer_len] == '`')
-      closer_len++;
-
-    if (closer_len == opener_len)
-      return i + closer_len;
-
-    i += closer_len;
-  }
-
-  return pos + 1;
-}
-
-static bufsize_t find_ms_copilot_citation_close(const unsigned char *data,
-                                                bufsize_t len,
-                                                bufsize_t start) {
-  bufsize_t i = start;
-  int depth = 0;
-
-  while (i < len) {
-    if (data[i] == '`') {
-      i = skip_matched_code_span(data, len, i);
-      continue;
-    }
-
-    if (starts_with(data, len, i, MS_COPILOT_CITATION_OPEN)) {
-      depth++;
-      i += MS_COPILOT_CITATION_DELIM_LEN;
-      continue;
-    }
-
-    if (starts_with(data, len, i, MS_COPILOT_CITATION_CLOSE)) {
-      if (depth == 0)
-        return i;
-
-      depth--;
-      i += MS_COPILOT_CITATION_DELIM_LEN;
-      continue;
-    }
-
-    i++;
-  }
-
-  return len;
-}
-
 static cmark_node *
 make_ms_copilot_citation_node(cmark_syntax_extension *extension,
                               cmark_parser *parser,
-                              cmark_inline_parser *inline_parser,
-                              bufsize_t body_start, bufsize_t body_end,
-                              int consumed) {
-  int start_column = cmark_inline_parser_get_column(inline_parser);
+                              const unsigned char *ref,
+                              bufsize_t ref_len,
+                              int start_line, int start_column,
+                              int end_line, int end_column) {
   cmark_node *node =
       cmark_node_new_with_mem_and_ext(CMARK_NODE_MS_COPILOT_CITATION,
                                       parser->mem, extension);
   if (!node)
     return NULL;
 
-  set_ms_copilot_citation_ref_bytes(
-      node, cmark_inline_parser_get_chunk(inline_parser)->data + body_start,
-      body_end - body_start);
+  set_ms_copilot_citation_ref_bytes(node, ref, ref_len);
+  node->start_line = start_line;
+  node->end_line = end_line;
+  node->start_column = start_column;
+  node->end_column = end_column;
+  return node;
+}
+
+static cmark_node *make_delimiter_text(cmark_parser *parser,
+                                       cmark_inline_parser *inline_parser,
+                                       bufsize_t offset, bufsize_t len) {
+  cmark_chunk *chunk = cmark_inline_parser_get_chunk(inline_parser);
+  cmark_node *node = cmark_node_new_with_mem(CMARK_NODE_TEXT, parser->mem);
+
+  if (!node)
+    return NULL;
+
+  node->as.literal = cmark_chunk_dup(chunk, offset, len);
   node->start_line = node->end_line =
       cmark_inline_parser_get_line(inline_parser);
-  node->start_column = start_column;
-  node->end_column = start_column + consumed - 1;
+  node->start_column = cmark_inline_parser_get_column(inline_parser);
+  node->end_column = node->start_column + (int)len - 1;
+  cmark_inline_parser_set_offset(inline_parser, (int)(offset + len));
+  return node;
+}
+
+static cmark_node *match_citation_delimiter(cmark_parser *parser,
+                                            cmark_inline_parser *inline_parser,
+                                            bufsize_t offset, bufsize_t len,
+                                            int can_open, int can_close) {
+  cmark_node *node =
+      make_delimiter_text(parser, inline_parser, offset, len);
+
+  if (!node)
+    return NULL;
+
+  cmark_inline_parser_push_delimiter(inline_parser, MS_COPILOT_CITATION_DELIM,
+                                     can_open, can_close, node);
   return node;
 }
 
@@ -197,37 +167,84 @@ static cmark_node *match(cmark_syntax_extension *extension, cmark_parser *parser
   unsigned char *data = chunk->data;
   bufsize_t len = chunk->len;
   bufsize_t opener_start = offset;
-  bufsize_t body_start;
-  bufsize_t body_end;
-  int consumed;
-  cmark_node *node;
 
   if (character == '!') {
     opener_start++;
     if (opener_start >= len)
       return NULL;
-  } else if (character != MS_COPILOT_CITATION_OPEN[0]) {
-    return NULL;
+
+    if (!starts_with(data, len, opener_start, MS_COPILOT_CITATION_OPEN))
+      return NULL;
+
+    return match_citation_delimiter(
+        parser, inline_parser, offset,
+        1 + MS_COPILOT_CITATION_DELIM_LEN, 1, 0);
   }
 
-  if (!starts_with(data, len, opener_start, MS_COPILOT_CITATION_OPEN))
+  if (character != MS_COPILOT_CITATION_OPEN[0])
     return NULL;
 
-  body_start = opener_start + MS_COPILOT_CITATION_DELIM_LEN;
-  body_end = find_ms_copilot_citation_close(data, len, body_start);
-  if (body_end == len)
-    return NULL;
+  if (starts_with(data, len, opener_start, MS_COPILOT_CITATION_OPEN))
+    return match_citation_delimiter(parser, inline_parser, offset,
+                                    MS_COPILOT_CITATION_DELIM_LEN, 1, 0);
 
-  consumed = (int)(body_end + MS_COPILOT_CITATION_DELIM_LEN - offset);
-  node = make_ms_copilot_citation_node(extension, parser, inline_parser,
-                                       body_start, body_end, consumed);
-  if (!node)
-    return NULL;
+  if (starts_with(data, len, opener_start, MS_COPILOT_CITATION_CLOSE))
+    return match_citation_delimiter(parser, inline_parser, offset,
+                                    MS_COPILOT_CITATION_DELIM_LEN, 0, 1);
 
-  cmark_inline_parser_set_offset(inline_parser,
-                                 (int)(body_end +
-                                       MS_COPILOT_CITATION_DELIM_LEN));
-  return node;
+  return NULL;
+}
+
+static void remove_delimiters(cmark_inline_parser *inline_parser,
+                              delimiter *opener, delimiter *closer) {
+  delimiter *delim = closer;
+
+  while (delim != NULL && delim != opener) {
+    delimiter *previous = delim->previous;
+    cmark_inline_parser_remove_delimiter(inline_parser, delim);
+    delim = previous;
+  }
+
+  cmark_inline_parser_remove_delimiter(inline_parser, opener);
+}
+
+static void free_nodes_through(cmark_node *first, cmark_node *last) {
+  cmark_node *node = first;
+
+  while (node) {
+    cmark_node *next = cmark_node_next(node);
+    cmark_node_free(node);
+    if (node == last)
+      break;
+    node = next;
+  }
+}
+
+static delimiter *insert_citation(cmark_syntax_extension *extension,
+                                  cmark_parser *parser,
+                                  cmark_inline_parser *inline_parser,
+                                  delimiter *opener, delimiter *closer) {
+  cmark_chunk *chunk = cmark_inline_parser_get_chunk(inline_parser);
+  cmark_node *opener_node = opener->inl_text;
+  cmark_node *closer_node = closer->inl_text;
+  delimiter *res = closer->next;
+  bufsize_t body_start = opener->position;
+  bufsize_t body_end = closer->position - closer->length;
+  cmark_node *citation;
+
+  citation = make_ms_copilot_citation_node(
+      extension, parser, chunk->data + body_start, body_end - body_start,
+      opener_node->start_line, opener_node->start_column,
+      closer_node->end_line, closer_node->end_column);
+
+  if (citation && cmark_node_insert_before(opener_node, citation)) {
+    free_nodes_through(opener_node, closer_node);
+  } else if (citation) {
+    cmark_node_free(citation);
+  }
+
+  remove_delimiters(inline_parser, opener, closer);
+  return res;
 }
 
 static const char *get_type_string(cmark_syntax_extension *extension,
@@ -316,6 +333,7 @@ cmark_syntax_extension *create_ms_copilot_citation_extension(void) {
   CMARK_NODE_MS_COPILOT_CITATION = cmark_syntax_extension_add_node(1);
 
   cmark_syntax_extension_set_match_inline_func(ext, match);
+  cmark_syntax_extension_set_inline_from_delim_func(ext, insert_citation);
   cmark_syntax_extension_set_get_type_string_func(ext, get_type_string);
   cmark_syntax_extension_set_can_contain_func(ext, can_contain);
   cmark_syntax_extension_set_commonmark_render_func(ext, commonmark_render);
@@ -330,8 +348,10 @@ cmark_syntax_extension *create_ms_copilot_citation_extension(void) {
   special_chars = cmark_llist_append(mem, special_chars,
                                      (void *)(size_t)
                                          MS_COPILOT_CITATION_OPEN[0]);
-  special_chars = cmark_llist_append(mem, special_chars, (void *)'!');
+  special_chars = cmark_llist_append(mem, special_chars,
+                                     (void *)MS_COPILOT_CITATION_DELIM);
   cmark_syntax_extension_set_special_inline_chars(ext, special_chars);
+  cmark_syntax_extension_set_emphasis(ext, 1);
 
   return ext;
 }

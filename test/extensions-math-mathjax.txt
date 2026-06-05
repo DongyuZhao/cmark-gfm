@@ -17,10 +17,25 @@ Inline \\(x+y\\) end.
 <p>Inline <span class="math math-inline">\(x+y\)</span> end.</p>
 ````````````````````````````````
 
+Single-backslash MathJax-looking delimiters are ordinary Markdown escapes, not
+math delimiters.
+
+```````````````````````````````` example
+Inline \(x+y\) end.
+.
+<p>Inline (x+y) end.</p>
+````````````````````````````````
+
 ```````````````````````````````` example
 Display \\[x+y\\] end.
 .
 <p>Display <span class="math math-display">\[x+y\]</span> end.</p>
+````````````````````````````````
+
+```````````````````````````````` example
+Display \[x+y\] end.
+.
+<p>Display [x+y] end.</p>
 ````````````````````````````````
 
 ```````````````````````````````` example

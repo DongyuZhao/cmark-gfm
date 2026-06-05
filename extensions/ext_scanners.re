@@ -38,8 +38,8 @@ bufsize_t _ext_scan_at(bufsize_t (*scanner)(const unsigned char *), unsigned cha
   math_dollar_inline_open = [$];
   math_dollar_backtick_open = [$][`];
   math_dollar_display_open = [$][$];
-  math_backslash_inline_open = [\\][(] | [\\][\\][(];
-  math_backslash_display_open = [\\]"[" | [\\][\\]"[";
+  math_backslash_inline_open = [\\][\\][(];
+  math_backslash_display_open = [\\][\\]"[";
 */
 
 bufsize_t _scan_table_start(const unsigned char *p)

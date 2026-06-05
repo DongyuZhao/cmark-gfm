@@ -13,6 +13,8 @@ cmark_node_type CMARK_NODE_MS_COPILOT_ACCORDION;
 cmark_node_type CMARK_NODE_MS_COPILOT_ACCORDION_HEADER;
 cmark_node_type CMARK_NODE_MS_COPILOT_ACCORDION_CONTENT;
 
+#define MS_COPILOT_ACCORDION_MAX_DEPTH 64
+
 typedef struct {
   bufsize_t start;
   bufsize_t open_end;
@@ -24,7 +26,8 @@ typedef struct {
 } details_match;
 
 static void postprocess_node(cmark_syntax_extension *extension,
-                             cmark_parser *parser, cmark_node *node);
+                             cmark_parser *parser, cmark_node *node,
+                             int depth);
 
 static int ascii_is_space(unsigned char c) {
   return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f';
@@ -271,9 +274,42 @@ static void append_markdown_blocks(cmark_syntax_extension *extension,
   cmark_parser_free(child_parser);
 }
 
+static void insert_markdown_blocks_after(cmark_syntax_extension *extension,
+                                         cmark_parser *parser,
+                                         cmark_node **anchor,
+                                         const unsigned char *data,
+                                         bufsize_t len) {
+  cmark_parser *child_parser;
+  cmark_node *document;
+  cmark_node *child;
+
+  if (len == 0 || anchor == NULL || *anchor == NULL)
+    return;
+
+  child_parser = cmark_parser_new_with_mem(parser->options, parser->mem);
+  attach_parser_extensions(parser, child_parser);
+  cmark_parser_feed(child_parser, (const char *)data, len);
+  document = cmark_parser_finish(child_parser);
+
+  while (document && document->first_child) {
+    child = document->first_child;
+    if (cmark_node_insert_after(*anchor, child)) {
+      *anchor = child;
+    } else {
+      cmark_node_free(child);
+    }
+  }
+
+  if (document)
+    cmark_node_free(document);
+  cmark_parser_free(child_parser);
+}
+
 static void own_inline_literals(cmark_node *node) {
   cmark_node *child;
 
+  // Force borrowed inline chunks to own their bytes before the source block is
+  // freed.
   switch (node->type) {
   case CMARK_NODE_TEXT:
   case CMARK_NODE_CODE:
@@ -338,7 +374,7 @@ static void append_header_inlines(cmark_syntax_extension *extension,
 static int append_accordion_sequence(cmark_syntax_extension *extension,
                                      cmark_parser *parser, cmark_node *parent,
                                      const unsigned char *data,
-                                     bufsize_t len);
+                                     bufsize_t len, int depth);
 
 static cmark_node *new_extension_node(cmark_syntax_extension *extension,
                                       cmark_parser *parser,
@@ -349,7 +385,7 @@ static cmark_node *new_extension_node(cmark_syntax_extension *extension,
 static cmark_node *accordion_from_match(cmark_syntax_extension *extension,
                                         cmark_parser *parser,
                                         const unsigned char *data,
-                                        details_match *details) {
+                                        details_match *details, int depth) {
   cmark_node *accordion =
       new_extension_node(extension, parser, CMARK_NODE_MS_COPILOT_ACCORDION);
   cmark_node *header = new_extension_node(
@@ -371,10 +407,16 @@ static cmark_node *accordion_from_match(cmark_syntax_extension *extension,
                         data + details->summary_open_end,
                         details->summary_close_start -
                             details->summary_open_end);
-  append_accordion_sequence(extension, parser, content,
-                            data + details->summary_close_end,
-                            details->close_start -
-                                details->summary_close_end);
+  if (append_accordion_sequence(extension, parser, content,
+                                data + details->summary_close_end,
+                                details->close_start -
+                                    details->summary_close_end,
+                                depth + 1) < 0) {
+    cmark_node_free(accordion);
+    cmark_node_free(header);
+    cmark_node_free(content);
+    return NULL;
+  }
 
   cmark_node_append_child(accordion, header);
   cmark_node_append_child(accordion, content);
@@ -385,7 +427,8 @@ static cmark_node *accordion_from_partial_match(cmark_syntax_extension *extensio
                                                 cmark_parser *parser,
                                                 const unsigned char *data,
                                                 details_match *details,
-                                                cmark_node **content_out) {
+                                                cmark_node **content_out,
+                                                int depth) {
   cmark_node *accordion =
       new_extension_node(extension, parser, CMARK_NODE_MS_COPILOT_ACCORDION);
   cmark_node *header = new_extension_node(
@@ -407,10 +450,16 @@ static cmark_node *accordion_from_partial_match(cmark_syntax_extension *extensio
                         data + details->summary_open_end,
                         details->summary_close_start -
                             details->summary_open_end);
-  append_accordion_sequence(extension, parser, content,
-                            data + details->summary_close_end,
-                            details->close_start -
-                                details->summary_close_end);
+  if (append_accordion_sequence(extension, parser, content,
+                                data + details->summary_close_end,
+                                details->close_start -
+                                    details->summary_close_end,
+                                depth + 1) < 0) {
+    cmark_node_free(accordion);
+    cmark_node_free(header);
+    cmark_node_free(content);
+    return NULL;
+  }
 
   cmark_node_append_child(accordion, header);
   cmark_node_append_child(accordion, content);
@@ -421,20 +470,24 @@ static cmark_node *accordion_from_partial_match(cmark_syntax_extension *extensio
 static int append_accordion_sequence(cmark_syntax_extension *extension,
                                      cmark_parser *parser, cmark_node *parent,
                                      const unsigned char *data,
-                                     bufsize_t len) {
+                                     bufsize_t len, int depth) {
   details_match details;
   bufsize_t pos = 0;
   int count = 0;
   cmark_node *accordion;
 
   while (find_next_details(data, len, pos, &details)) {
+    if (depth >= MS_COPILOT_ACCORDION_MAX_DEPTH)
+      return -1;
+
     append_markdown_blocks(extension, parser, parent, data + pos,
                            details.start - pos);
-    accordion = accordion_from_match(extension, parser, data, &details);
-    if (accordion) {
-      cmark_node_append_child(parent, accordion);
-      count++;
-    }
+    accordion = accordion_from_match(extension, parser, data, &details, depth);
+    if (!accordion)
+      return -1;
+
+    cmark_node_append_child(parent, accordion);
+    count++;
     pos = details.close_end;
   }
 
@@ -443,7 +496,8 @@ static int append_accordion_sequence(cmark_syntax_extension *extension,
 }
 
 static int replace_html_block(cmark_syntax_extension *extension,
-                              cmark_parser *parser, cmark_node *node) {
+                              cmark_parser *parser, cmark_node *node,
+                              int depth) {
   cmark_node *fragment;
   cmark_node *child;
   int count;
@@ -458,9 +512,9 @@ static int replace_html_block(cmark_syntax_extension *extension,
   fragment = cmark_node_new_with_mem(CMARK_NODE_DOCUMENT, parser->mem);
   count = append_accordion_sequence(extension, parser, fragment,
                                     node->as.literal.data,
-                                    node->as.literal.len);
+                                    node->as.literal.len, depth);
 
-  if (count == 0) {
+  if (count <= 0) {
     cmark_node_free(fragment);
     return 0;
   }
@@ -529,7 +583,7 @@ static int has_matching_closing_details_sibling(cmark_node *start) {
 
 static int replace_partial_html_block(cmark_syntax_extension *extension,
                                       cmark_parser *parser, cmark_node *node,
-                                      cmark_node **next_after) {
+                                      cmark_node **next_after, int depth) {
   details_match details;
   cmark_node *accordion;
   cmark_node *content = NULL;
@@ -537,9 +591,12 @@ static int replace_partial_html_block(cmark_syntax_extension *extension,
   cmark_node *next;
   bufsize_t close_start;
   bufsize_t close_end;
-  int depth = 1;
+  int scan_depth = 1;
 
   if (node->type != CMARK_NODE_HTML_BLOCK || node->as.literal.len == 0)
+    return 0;
+
+  if (depth >= MS_COPILOT_ACCORDION_MAX_DEPTH)
     return 0;
 
   if (!parse_partial_details_match(node->as.literal.data, node->as.literal.len,
@@ -551,7 +608,7 @@ static int replace_partial_html_block(cmark_syntax_extension *extension,
 
   accordion =
       accordion_from_partial_match(extension, parser, node->as.literal.data,
-                                   &details, &content);
+                                   &details, &content, depth);
   if (!accordion)
     return 0;
 
@@ -563,15 +620,15 @@ static int replace_partial_html_block(cmark_syntax_extension *extension,
 
     if (current != node && current->type == CMARK_NODE_HTML_BLOCK &&
         scan_details_depth(current->as.literal.data, current->as.literal.len,
-                           &depth, &close_start, &close_end)) {
+                           &scan_depth, &close_start, &close_end)) {
       append_markdown_blocks(extension, parser, content,
                              current->as.literal.data, close_start);
-      append_markdown_blocks(extension, parser, content,
-                             current->as.literal.data + close_end,
-                             current->as.literal.len - close_end);
+      insert_markdown_blocks_after(extension, parser, &accordion,
+                                   current->as.literal.data + close_end,
+                                   current->as.literal.len - close_end);
       cmark_node_free(current);
-      postprocess_node(extension, parser, content);
-      *next_after = next;
+      postprocess_node(extension, parser, content, depth + 1);
+      *next_after = accordion->next;
       return 1;
     }
 
@@ -589,29 +646,35 @@ static int replace_partial_html_block(cmark_syntax_extension *extension,
 }
 
 static void postprocess_node(cmark_syntax_extension *extension,
-                             cmark_parser *parser, cmark_node *node) {
+                             cmark_parser *parser, cmark_node *node,
+                             int depth) {
   cmark_node *child;
   cmark_node *next;
   cmark_node *next_after;
+  int child_depth;
 
-  if (replace_html_block(extension, parser, node))
+  if (replace_html_block(extension, parser, node, depth))
     return;
 
   child = node->first_child;
   while (child) {
     next = child->next;
-    if (replace_partial_html_block(extension, parser, child, &next_after)) {
+    if (replace_partial_html_block(extension, parser, child, &next_after,
+                                   depth)) {
       child = next_after;
       continue;
     }
-    postprocess_node(extension, parser, child);
+    child_depth = child->type == CMARK_NODE_MS_COPILOT_ACCORDION
+                      ? depth + 1
+                      : depth;
+    postprocess_node(extension, parser, child, child_depth);
     child = next;
   }
 }
 
 static cmark_node *postprocess(cmark_syntax_extension *extension,
                                cmark_parser *parser, cmark_node *root) {
-  postprocess_node(extension, parser, root);
+  postprocess_node(extension, parser, root, 0);
   return root;
 }
 
