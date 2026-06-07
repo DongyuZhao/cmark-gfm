@@ -1,6 +1,7 @@
 #include "cmark-gfm-core-extensions.h"
 #include "autolink.h"
 #include "ms_copilot_accordion.h"
+#include "ms_copilot_annotation.h"
 #include "ms_copilot_citation.h"
 #include "strikethrough.h"
 #include "table.h"
@@ -22,6 +23,8 @@ static int core_extensions_registration(cmark_plugin *plugin) {
                                          create_ms_copilot_accordion_extension());
   cmark_plugin_register_syntax_extension(plugin,
                                          create_ms_copilot_citation_extension());
+  cmark_plugin_register_syntax_extension(plugin,
+                                         create_ms_copilot_annotation_extension());
   return 1;
 }
 

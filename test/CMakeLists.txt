@@ -124,6 +124,21 @@ IF (PYTHONINTERP_FOUND)
     "--extensions" "ms_copilot_accordion"
     )
 
+  add_test(ms_copilot_annotation_extension_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
+    "--no-normalize"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-ms-copilot-annotation.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
+    "--extensions" "ms_copilot_annotation"
+    )
+
+  add_test(ms_copilot_annotation_render_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/ms_copilot_annotation_render_tests.py"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
+    )
+
   add_test(ms_copilot_accordion_depth_limit_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/ms_copilot_accordion_depth_limit.py"

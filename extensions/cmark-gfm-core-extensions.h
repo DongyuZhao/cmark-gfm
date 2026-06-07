@@ -84,6 +84,17 @@ const char *cmark_gfm_extensions_get_ms_copilot_citation_ref(cmark_node *node);
 CMARK_GFM_EXPORT
 int cmark_gfm_extensions_set_ms_copilot_citation_ref(cmark_node *node, const char *ref);
 
+/** Returns the scenario payload for MS Copilot annotation extension nodes, or NULL on error.
+ */
+CMARK_GFM_EXPORT
+const char *cmark_gfm_extensions_get_ms_copilot_annotation_scenario(cmark_node *node);
+
+/** Sets the scenario payload for MS Copilot annotation extension nodes, returning 1 on success and 0 on error.
+ */
+CMARK_GFM_EXPORT
+int cmark_gfm_extensions_set_ms_copilot_annotation_scenario(cmark_node *node,
+                                                            const char *scenario);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,0 +1,293 @@
+---
+title: Copilot Inline Entity Annotation Extension (cmark)
+status: proposed
+version: 0.1
+date: '2026-06-06'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+---
+
+# Copilot Inline Entity Annotation Extension
+
+Sydney embeds grounded entities inline in bot message text as HTML-like tags, e.g.
+`<Person>Aman Kumar</Person>`. This extension recognizes that fixed tag set and emits a
+typed `ms-copilot-annotation` node with a `scenario` field. The HTML renderer emits
+`<span data-entity="TYPE">INNER</span>` so the client can render
+entity chips / links downstream, instead of the current fragile regex strip
+(`normalizeNakedXMLTag`, which just unwraps to plain text).
+
+Scope rules:
+  * Only the recognized tag names below are rewritten. Any other tag follows standard
+    CommonMark inline-HTML rules (this extension does not touch it).
+  * Tag matching is case-insensitive; the emitted `data-entity` value is lowercased.
+  * `INNER` is parsed as normal CommonMark inlines (emphasis, code, links all still work).
+  * Annotation rewriting is single-level only. Recognized tags inside an emitted
+    `ms-copilot-annotation` remain ordinary inline HTML; recursive annotations are not supported.
+  * Attributes on the source tag are ignored — only the entity type and inner text survive.
+  * `<br>` and the `ms-copilot-*` family are out of scope here; they are covered by separate
+    normalization specs.
+
+## Recognized tags
+
+| Inline tag (case-insensitive) | data-entity   | Provenance                         |
+|-------------------------------|---------------|------------------------------------|
+| `<Person>` / `<People>`       | `person`      | verified — wire fixtures           |
+| `<Email>`                     | `email`       | verified — render diagnostic       |
+| `<cite>`                      | `citation`    | verified — render diagnostic       |
+| `<File>`                      | `file`        | inferred — entityAnnotationTypes   |
+| `<Event>`                     | `event`       | inferred — entityAnnotationTypes   |
+| `<External>`                  | `external`    | inferred — entityAnnotationTypes   |
+| `<TeamsMessage>`              | `teamsmessage`| inferred — entityAnnotationTypes   |
+
+## Person
+
+```````````````````````````````` example
+Meet <Person>Aman Kumar</Person> today.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Meet </text>
+    <ms-copilot-annotation scenario="person">
+      <text xml:space="preserve">Aman Kumar</text>
+    </ms-copilot-annotation>
+    <text xml:space="preserve"> today.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+`<People>` is an accepted alias for the same `person` type.
+
+```````````````````````````````` example
+<People>Aman Kumar</People>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <ms-copilot-annotation scenario="person">
+      <text xml:space="preserve">Aman Kumar</text>
+    </ms-copilot-annotation>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Matching is case-insensitive; the type is lowercased
+
+```````````````````````````````` example
+<PERSON>Aman</PERSON> and <person>Bob</person>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <ms-copilot-annotation scenario="person">
+      <text xml:space="preserve">Aman</text>
+    </ms-copilot-annotation>
+    <text xml:space="preserve"> and </text>
+    <ms-copilot-annotation scenario="person">
+      <text xml:space="preserve">Bob</text>
+    </ms-copilot-annotation>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Email
+
+```````````````````````````````` example
+Reply to <Email>Re: Design Review</Email>.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Reply to </text>
+    <ms-copilot-annotation scenario="email">
+      <text xml:space="preserve">Re: Design Review</text>
+    </ms-copilot-annotation>
+    <text xml:space="preserve">.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Citation
+
+`<cite>` maps to `citation`. Note: some backends delimit citation spans with the
+private-use codepoints U+E200 / U+E201 / U+E202 instead of `<cite>` tags. Those are owned
+by the citation-marker extension and must NOT be double-wrapped here.
+
+```````````````````````````````` example
+The sky is blue <cite>1</cite>.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">The sky is blue </text>
+    <ms-copilot-annotation scenario="citation">
+      <text xml:space="preserve">1</text>
+    </ms-copilot-annotation>
+    <text xml:space="preserve">.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## File / Event / External / TeamsMessage (extended vocabulary)
+
+```````````````````````````````` example
+See <File>Budget.xlsx</File> raised in <Event>Weekly Sync</Event>.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">See </text>
+    <ms-copilot-annotation scenario="file">
+      <text xml:space="preserve">Budget.xlsx</text>
+    </ms-copilot-annotation>
+    <text xml:space="preserve"> raised in </text>
+    <ms-copilot-annotation scenario="event">
+      <text xml:space="preserve">Weekly Sync</text>
+    </ms-copilot-annotation>
+    <text xml:space="preserve">.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+```````````````````````````````` example
+Per <External>Acme Portal</External> and <TeamsMessage>Aman: ship it</TeamsMessage>.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Per </text>
+    <ms-copilot-annotation scenario="external">
+      <text xml:space="preserve">Acme Portal</text>
+    </ms-copilot-annotation>
+    <text xml:space="preserve"> and </text>
+    <ms-copilot-annotation scenario="teamsmessage">
+      <text xml:space="preserve">Aman: ship it</text>
+    </ms-copilot-annotation>
+    <text xml:space="preserve">.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Inner content is parsed as inline markdown
+
+```````````````````````````````` example
+<Person>**Aman** Kumar</Person>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <ms-copilot-annotation scenario="person">
+      <strong>
+        <text xml:space="preserve">Aman</text>
+      </strong>
+      <text xml:space="preserve"> Kumar</text>
+    </ms-copilot-annotation>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Nested annotations are not rewritten recursively
+
+```````````````````````````````` example
+<Person>A <Email>x@y.com</Email></Person>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <ms-copilot-annotation scenario="person">
+      <text xml:space="preserve">A </text>
+      <html_inline xml:space="preserve">&lt;Email&gt;</html_inline>
+      <text xml:space="preserve">x@y.com</text>
+      <html_inline xml:space="preserve">&lt;/Email&gt;</html_inline>
+    </ms-copilot-annotation>
+  </paragraph>
+</document>
+````````````````````````````````
+
+```````````````````````````````` example
+<Person>A <Person>Nested</Person> B</Person>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <ms-copilot-annotation scenario="person">
+      <text xml:space="preserve">A </text>
+      <html_inline xml:space="preserve">&lt;Person&gt;</html_inline>
+      <text xml:space="preserve">Nested</text>
+      <html_inline xml:space="preserve">&lt;/Person&gt;</html_inline>
+      <text xml:space="preserve"> B</text>
+    </ms-copilot-annotation>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Attributes on the source tag are ignored
+
+```````````````````````````````` example
+<Person id="aman@contoso.com" data-x="1">Aman Kumar</Person>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <ms-copilot-annotation scenario="person">
+      <text xml:space="preserve">Aman Kumar</text>
+    </ms-copilot-annotation>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Empty annotations are dropped
+
+```````````````````````````````` example
+Hello <Person></Person>world
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Hello world</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Not parsed inside code spans
+
+```````````````````````````````` example
+Use the `<Person>` tag literally.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Use the </text>
+    <code xml:space="preserve">&lt;Person&gt;</code>
+    <text xml:space="preserve"> tag literally.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+## Unrecognized tags fall through to standard CommonMark inline HTML
+
+```````````````````````````````` example
+<Sparkle>x</Sparkle>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <html_inline xml:space="preserve">&lt;Sparkle&gt;</html_inline>
+    <text xml:space="preserve">x</text>
+    <html_inline xml:space="preserve">&lt;/Sparkle&gt;</html_inline>
+  </paragraph>
+</document>
+````````````````````````````````

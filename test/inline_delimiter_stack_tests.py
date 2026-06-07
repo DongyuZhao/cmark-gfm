@@ -93,6 +93,15 @@ def main():
         citation_pathological_result.stderr,
     )
 
+    annotation_pathological = " ".join(["<Person>"] * 20000)
+    annotation_pathological_result = run_cmark(
+        args.program, "ms_copilot_annotation", annotation_pathological
+    )
+    require(
+        annotation_pathological_result.returncode == 0,
+        annotation_pathological_result.stderr,
+    )
+
 
 if __name__ == "__main__":
     main()
