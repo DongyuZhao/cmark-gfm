@@ -189,7 +189,17 @@ static bool is_blank(cmark_strbuf *s, bufsize_t offset) {
   return true;
 }
 
-static CMARK_INLINE bool accepts_lines(cmark_node_type block_type) {
+static CMARK_INLINE bool extension_accepts_lines(cmark_node *node) {
+  return node->extension && node->extension->accepts_lines_func &&
+         node->extension->accepts_lines_func(node->extension, node) != 0;
+}
+
+static CMARK_INLINE bool accepts_lines(cmark_node *node) {
+  cmark_node_type block_type = S_type(node);
+
+  if (extension_accepts_lines(node))
+    return true;
+
   return (block_type == CMARK_NODE_PARAGRAPH ||
           block_type == CMARK_NODE_HEADING ||
           block_type == CMARK_NODE_CODE_BLOCK);
@@ -1130,7 +1140,8 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
   size_t depth = 0;
 
   while (cont_type != CMARK_NODE_CODE_BLOCK &&
-         cont_type != CMARK_NODE_HTML_BLOCK) {
+         cont_type != CMARK_NODE_HTML_BLOCK &&
+         !extension_accepts_lines(*container)) {
     depth++;
     S_find_first_nonspace(parser, input);
     indented = parser->indent >= CODE_INDENT;
@@ -1324,7 +1335,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       }
     }
 
-    if (accepts_lines(S_type(*container))) {
+    if (accepts_lines(*container)) {
       // if it's a line container, it can't contain other containers
       break;
     }
@@ -1354,6 +1365,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
   const bool last_line_blank =
       (parser->blank && ctype != CMARK_NODE_BLOCK_QUOTE &&
        ctype != CMARK_NODE_HEADING && ctype != CMARK_NODE_THEMATIC_BREAK &&
+       !extension_accepts_lines(container) &&
        !(ctype == CMARK_NODE_CODE_BLOCK && container->as.code.fenced) &&
        !(ctype == CMARK_NODE_ITEM && container->first_child == NULL &&
          container->start_line == parser->line_number));
@@ -1424,9 +1436,11 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
         container = finalize(parser, container);
         assert(parser->current != NULL);
       }
+    } else if (extension_accepts_lines(container)) {
+      add_line(container, input, parser);
     } else if (parser->blank) {
       // ??? do nothing
-    } else if (accepts_lines(S_type(container))) {
+    } else if (accepts_lines(container)) {
       if (S_type(container) == CMARK_NODE_HEADING &&
           container->as.heading.setext == false) {
         chop_trailing_hashtags(input);

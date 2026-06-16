@@ -82,6 +82,11 @@ void cmark_syntax_extension_set_contains_inlines_func(cmark_syntax_extension *ex
   extension->contains_inlines_func = func;
 }
 
+void cmark_syntax_extension_set_accepts_lines_func(cmark_syntax_extension *extension,
+                                                   cmark_accepts_lines_func func) {
+  extension->accepts_lines_func = func;
+}
+
 void cmark_syntax_extension_set_commonmark_render_func(cmark_syntax_extension *extension,
                                                        cmark_common_render_func func) {
   extension->commonmark_render_func = func;

@@ -22,9 +22,15 @@ cmark_node_type CMARK_NODE_MATH_BLOCK;
 #define MATH_DELIM_BACKSLASH_INLINE 3
 #define MATH_DELIM_BACKSLASH_DISPLAY 4
 
+#define MATH_BLOCK_DELIM_NONE 0
+#define MATH_BLOCK_DELIM_BACKSLASH 1
+#define MATH_BLOCK_DELIM_DOLLAR 2
+
 typedef struct {
   cmark_chunk literal;
   cmark_math_mode mode;
+  int block_delim;
+  int closed;
 } node_math;
 
 static int is_math_node(cmark_node *node) {
@@ -152,6 +158,104 @@ static cmark_node *make_math_node(cmark_syntax_extension *extension,
   get_math(node)->mode = mode;
   set_math_literal_bytes(node, literal, literal_len);
   return node;
+}
+
+static int is_line_end(const unsigned char *data, bufsize_t len,
+                       bufsize_t pos) {
+  return pos >= len || data[pos] == '\n' || data[pos] == '\r';
+}
+
+static int has_only_spaces_until_line_end(const unsigned char *data,
+                                          bufsize_t len, bufsize_t pos) {
+  while (pos < len && (data[pos] == ' ' || data[pos] == '\t'))
+    pos++;
+
+  return is_line_end(data, len, pos);
+}
+
+static int scan_math_block_open(const unsigned char *data, bufsize_t len,
+                                bufsize_t pos) {
+  if (pos + 3 <= len && data[pos] == '\\' && data[pos + 1] == '\\' &&
+      data[pos + 2] == '[' &&
+      has_only_spaces_until_line_end(data, len, pos + 3))
+    return MATH_BLOCK_DELIM_BACKSLASH;
+
+  if (pos + 2 <= len && data[pos] == '$' && data[pos + 1] == '$' &&
+      has_only_spaces_until_line_end(data, len, pos + 2))
+    return MATH_BLOCK_DELIM_DOLLAR;
+
+  return MATH_BLOCK_DELIM_NONE;
+}
+
+static int scan_math_block_close(const unsigned char *data, bufsize_t len,
+                                 bufsize_t pos, int block_delim) {
+  if (block_delim == MATH_BLOCK_DELIM_BACKSLASH) {
+    return pos + 3 <= len && data[pos] == '\\' && data[pos + 1] == '\\' &&
+           data[pos + 2] == ']' &&
+           has_only_spaces_until_line_end(data, len, pos + 3);
+  }
+
+  if (block_delim == MATH_BLOCK_DELIM_DOLLAR) {
+    return pos + 2 <= len && data[pos] == '$' && data[pos + 1] == '$' &&
+           has_only_spaces_until_line_end(data, len, pos + 2);
+  }
+
+  return 0;
+}
+
+static cmark_node *try_opening_math_block(cmark_syntax_extension *extension,
+                                          int indented, cmark_parser *parser,
+                                          cmark_node *parent_container,
+                                          unsigned char *input, int len) {
+  int block_delim;
+  cmark_node *node;
+  node_math *math;
+  int first_nonspace = cmark_parser_get_first_nonspace(parser);
+
+  if (indented)
+    return NULL;
+
+  block_delim = scan_math_block_open(input, (bufsize_t)len,
+                                     (bufsize_t)first_nonspace);
+  if (block_delim == MATH_BLOCK_DELIM_NONE)
+    return NULL;
+
+  node = cmark_parser_add_child(parser, parent_container, CMARK_NODE_MATH_BLOCK,
+                                first_nonspace + 1);
+  if (!node)
+    return NULL;
+
+  cmark_node_set_syntax_extension(node, extension);
+  node->as.opaque = parser->mem->calloc(1, sizeof(node_math));
+
+  math = get_math(node);
+  if (!math)
+    return NULL;
+
+  math->mode = CMARK_MATH_MODE_STANDALONE;
+  math->block_delim = block_delim;
+  cmark_parser_advance_offset(parser, (char *)input,
+                              len - cmark_parser_get_offset(parser), false);
+  return node;
+}
+
+static int math_block_matches(cmark_syntax_extension *extension,
+                              cmark_parser *parser, unsigned char *input,
+                              int len, cmark_node *container) {
+  node_math *math = get_math(container);
+  int first_nonspace = cmark_parser_get_first_nonspace(parser);
+
+  if (!math || math->closed)
+    return 0;
+
+  if (scan_math_block_close(input, (bufsize_t)len, (bufsize_t)first_nonspace,
+                            math->block_delim)) {
+    math->closed = 1;
+    cmark_parser_advance_offset(parser, (char *)input,
+                                len - cmark_parser_get_offset(parser), false);
+  }
+
+  return 1;
 }
 
 static cmark_node *make_delimiter_text(cmark_parser *parser,
@@ -493,6 +597,10 @@ static int can_contain(cmark_syntax_extension *extension, cmark_node *node,
   return 0;
 }
 
+static int accepts_lines(cmark_syntax_extension *extension, cmark_node *node) {
+  return node && node->type == CMARK_NODE_MATH_BLOCK;
+}
+
 static int info_is_math(cmark_chunk *info) {
   return info->len == 4 && memcmp(info->data, "math", 4) == 0;
 }
@@ -536,6 +644,15 @@ static void postprocess_node(cmark_syntax_extension *extension,
   cmark_node *child;
   cmark_node *next;
 
+  if (node->type == CMARK_NODE_MATH_BLOCK) {
+    node_math *math = get_math(node);
+    if (math && !math->literal.data) {
+      set_math_literal_trimmed(node, node->content.ptr, node->content.size);
+      cmark_strbuf_clear(&node->content);
+    }
+    return;
+  }
+
   if (node->type == CMARK_NODE_CODE_BLOCK && info_is_math(&node->as.code.info)) {
     replace_with_math_block(extension, parser->mem, node,
                             node->as.code.literal.data,
@@ -578,9 +695,12 @@ cmark_syntax_extension *create_math_extension(void) {
   CMARK_NODE_MATH_BLOCK = cmark_syntax_extension_add_node(0);
 
   cmark_syntax_extension_set_match_inline_func(ext, match);
+  cmark_syntax_extension_set_match_block_func(ext, math_block_matches);
+  cmark_syntax_extension_set_open_block_func(ext, try_opening_math_block);
   cmark_syntax_extension_set_postprocess_func(ext, postprocess);
   cmark_syntax_extension_set_get_type_string_func(ext, get_type_string);
   cmark_syntax_extension_set_can_contain_func(ext, can_contain);
+  cmark_syntax_extension_set_accepts_lines_func(ext, accepts_lines);
   cmark_syntax_extension_set_commonmark_render_func(ext, commonmark_render);
   cmark_syntax_extension_set_plaintext_render_func(ext, plaintext_render);
   cmark_syntax_extension_set_html_render_func(ext, html_render);

@@ -227,6 +227,9 @@ typedef int (*cmark_can_contain_func) (cmark_syntax_extension *extension,
 typedef int (*cmark_contains_inlines_func) (cmark_syntax_extension *extension,
                                             cmark_node *node);
 
+typedef int (*cmark_accepts_lines_func) (cmark_syntax_extension *extension,
+                                         cmark_node *node);
+
 typedef void (*cmark_common_render_func) (cmark_syntax_extension *extension,
                                           struct cmark_renderer *renderer,
                                           cmark_node *node,
@@ -327,6 +330,12 @@ void cmark_syntax_extension_set_can_contain_func(cmark_syntax_extension *extensi
 CMARK_GFM_EXPORT
 void cmark_syntax_extension_set_contains_inlines_func(cmark_syntax_extension *extension,
                                                       cmark_contains_inlines_func func);
+
+/** See the documentation for 'cmark_syntax_extension'
+ */
+CMARK_GFM_EXPORT
+void cmark_syntax_extension_set_accepts_lines_func(cmark_syntax_extension *extension,
+                                                   cmark_accepts_lines_func func);
 
 /** See the documentation for 'cmark_syntax_extension'
  */

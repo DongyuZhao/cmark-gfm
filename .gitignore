@@ -31,6 +31,7 @@
 bstrlib.txt
 build
 build-asan
+build-bench
 cmark.dSYM/*
 cmark
 .cache

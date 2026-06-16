@@ -18,6 +18,7 @@ struct cmark_syntax_extension {
   cmark_get_type_string_func      get_type_string_func;
   cmark_can_contain_func          can_contain_func;
   cmark_contains_inlines_func     contains_inlines_func;
+  cmark_accepts_lines_func        accepts_lines_func;
   cmark_common_render_func        commonmark_render_func;
   cmark_common_render_func        plaintext_render_func;
   cmark_common_render_func        latex_render_func;

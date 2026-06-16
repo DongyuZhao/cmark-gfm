@@ -52,10 +52,38 @@ x+y
 <div class="math math-display">\[x+y\]</div>
 ````````````````````````````````
 
+Display math blocks bind before Markdown block syntax inside the body.
+
+```````````````````````````````` example
+\\[
+\\nabla \\times \\mathbf{E}
+=
+-\\frac{\\partial \\mathbf{B}}{\\partial t}
+\\]
+.
+<div class="math math-display">\[\\nabla \\times \\mathbf{E}
+=
+-\\frac{\\partial \\mathbf{B}}{\\partial t}\]</div>
+````````````````````````````````
+
 ```````````````````````````````` example
 Text $$x+y$$ end.
 .
 <p>Text <span class="math math-display">\[x+y\]</span> end.</p>
+````````````````````````````````
+
+Dollar display math blocks bind before Markdown block syntax inside the body.
+
+```````````````````````````````` example
+$$
+\\nabla \\times \\mathbf{E}
+=
+-\\frac{\\partial \\mathbf{B}}{\\partial t}
+$$
+.
+<div class="math math-display">\[\\nabla \\times \\mathbf{E}
+=
+-\\frac{\\partial \\mathbf{B}}{\\partial t}\]</div>
 ````````````````````````````````
 
 Escaped backslash closers are body text, not delimiters.
