@@ -4,6 +4,7 @@
 
 #include <buffer.h>
 #include <chunk.h>
+#include <cmark-gfm.h>
 #include <html.h>
 #include <houdini.h>
 #include <node.h>
@@ -167,6 +168,9 @@ static cmark_node *match(cmark_syntax_extension *extension, cmark_parser *parser
   unsigned char *data = chunk->data;
   bufsize_t len = chunk->len;
   bufsize_t opener_start = offset;
+
+  if (!(parser->options & CMARK_OPT_MS_COPILOT_CITATION))
+    return NULL;
 
   if (character == '!') {
     opener_start++;

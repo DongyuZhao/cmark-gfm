@@ -114,14 +114,13 @@ IF (PYTHONINTERP_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-ms-copilot-citation.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
-    "--extensions" "ms_copilot_citation"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml --ms-copilot-citation"
     )
 
   add_test(inline_delimiter_stack_tests_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/inline_delimiter_stack_tests.py"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-math-delimiters"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-math-delimiters --ms-copilot-annotation --ms-copilot-citation"
     )
 
   add_test(ms_copilot_accordion_extension_executable
@@ -129,8 +128,7 @@ IF (PYTHONINTERP_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-ms-copilot-accordion.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
-    "--extensions" "ms_copilot_accordion"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml --ms-copilot-accordion"
     )
 
   add_test(ms_copilot_annotation_extension_executable
@@ -138,20 +136,28 @@ IF (PYTHONINTERP_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-ms-copilot-annotation.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
-    "--extensions" "ms_copilot_annotation"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml --ms-copilot-annotation"
     )
 
   add_test(ms_copilot_annotation_render_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/ms_copilot_annotation_render_tests.py"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --ms-copilot-annotation"
+    )
+
+  add_test(ms_copilot_option_gates_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
+    "--no-normalize"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-ms-copilot-option-gates.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
+    "--extensions" "ms_copilot_accordion ms_copilot_annotation ms_copilot_citation"
     )
 
   add_test(ms_copilot_accordion_depth_limit_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/ms_copilot_accordion_depth_limit.py"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --ms-copilot-accordion"
     )
 
   add_test(roundtrip_extensions_executable

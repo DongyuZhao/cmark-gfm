@@ -674,6 +674,9 @@ static void postprocess_node(cmark_syntax_extension *extension,
 
 static cmark_node *postprocess(cmark_syntax_extension *extension,
                                cmark_parser *parser, cmark_node *root) {
+  if (!(parser->options & CMARK_OPT_MS_COPILOT_ACCORDION))
+    return root;
+
   postprocess_node(extension, parser, root, 0);
   return root;
 }

@@ -776,6 +776,18 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_MS_MATH_DELIMITERS (1 << 19)
 
+/** Enable MS Copilot accordion syntax.
+ */
+#define CMARK_OPT_MS_COPILOT_ACCORDION (1 << 20)
+
+/** Enable MS Copilot annotation syntax.
+ */
+#define CMARK_OPT_MS_COPILOT_ANNOTATION (1 << 21)
+
+/** Enable MS Copilot citation syntax.
+ */
+#define CMARK_OPT_MS_COPILOT_CITATION (1 << 22)
+
 /**
  * ## Version information
  */

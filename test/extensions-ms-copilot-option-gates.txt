@@ -1,0 +1,57 @@
+---
+title: MS Copilot option gate extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-06-16'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## MS Copilot option gates
+
+These examples attach the MS Copilot extensions without enabling their parser
+options. The extension syntax remains ordinary Markdown/HTML.
+
+```````````````````````````````` example
+Cite 【smith-2024】 today.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Cite 【smith-2024】 today.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+```````````````````````````````` example
+Meet <Person>Aman</Person> today.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Meet </text>
+    <html_inline xml:space="preserve">&lt;Person&gt;</html_inline>
+    <text xml:space="preserve">Aman</text>
+    <html_inline xml:space="preserve">&lt;/Person&gt;</html_inline>
+    <text xml:space="preserve"> today.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+```````````````````````````````` example
+<details>
+<summary>Title</summary>
+Body
+</details>
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <html_block xml:space="preserve">&lt;details&gt;
+&lt;summary&gt;Title&lt;/summary&gt;
+Body
+&lt;/details&gt;
+</html_block>
+</document>
+````````````````````````````````

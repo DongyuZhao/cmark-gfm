@@ -68,8 +68,53 @@ void print_usage() {
          "                                  \\\\[...\\\\] delimiters when math is enabled.\n");
   printf("  --ms-math-delimiters            Enable MS math \\(...\\) and \\[...\\]\n"
          "                                  delimiters when math is enabled.\n");
+  printf("  --ms-copilot-accordion          Enable MS Copilot accordion syntax.\n");
+  printf("  --ms-copilot-annotation         Enable MS Copilot annotation syntax.\n");
+  printf("  --ms-copilot-citation           Enable MS Copilot citation syntax.\n");
   printf("  --help, -h       Print usage information\n");
   printf("  --version        Print version\n");
+}
+
+static bool parser_has_syntax_extension(cmark_parser *parser,
+                                        const char *name) {
+  cmark_llist *tmp;
+
+  for (tmp = parser->syntax_extensions; tmp; tmp = tmp->next) {
+    cmark_syntax_extension *ext = (cmark_syntax_extension *)tmp->data;
+    if (strcmp(ext->name, name) == 0)
+      return true;
+  }
+
+  return false;
+}
+
+static bool attach_syntax_extension(cmark_parser *parser, const char *name) {
+  cmark_syntax_extension *syntax_extension;
+
+  if (parser_has_syntax_extension(parser, name))
+    return true;
+
+  syntax_extension = cmark_find_syntax_extension(name);
+  if (!syntax_extension) {
+    fprintf(stderr, "Unknown extension %s\n", name);
+    return false;
+  }
+
+  return cmark_parser_attach_syntax_extension(parser, syntax_extension) != 0;
+}
+
+static bool attach_option_extensions(cmark_parser *parser, int options) {
+  if ((options & CMARK_OPT_MS_COPILOT_ACCORDION) &&
+      !attach_syntax_extension(parser, "ms_copilot_accordion"))
+    return false;
+  if ((options & CMARK_OPT_MS_COPILOT_ANNOTATION) &&
+      !attach_syntax_extension(parser, "ms_copilot_annotation"))
+    return false;
+  if ((options & CMARK_OPT_MS_COPILOT_CITATION) &&
+      !attach_syntax_extension(parser, "ms_copilot_citation"))
+    return false;
+
+  return true;
 }
 
 static bool print_document(cmark_node *document, writer_format writer,
@@ -173,6 +218,12 @@ int main(int argc, char *argv[]) {
       options |= CMARK_OPT_LATEX_MATH_DELIMITERS;
     } else if (strcmp(argv[i], "--ms-math-delimiters") == 0) {
       options |= CMARK_OPT_MS_MATH_DELIMITERS;
+    } else if (strcmp(argv[i], "--ms-copilot-accordion") == 0) {
+      options |= CMARK_OPT_MS_COPILOT_ACCORDION;
+    } else if (strcmp(argv[i], "--ms-copilot-annotation") == 0) {
+      options |= CMARK_OPT_MS_COPILOT_ANNOTATION;
+    } else if (strcmp(argv[i], "--ms-copilot-citation") == 0) {
+      options |= CMARK_OPT_MS_COPILOT_CITATION;
     } else if (strcmp(argv[i], "--table-prefer-style-attributes") == 0) {
       options |= CMARK_OPT_TABLE_PREFER_STYLE_ATTRIBUTES;
     } else if (strcmp(argv[i], "--strikethrough-double-tilde") == 0) {
@@ -254,6 +305,9 @@ int main(int argc, char *argv[]) {
   parser = cmark_parser_new_with_mem(options, cmark_get_arena_mem_allocator());
 #endif
 
+  if (!attach_option_extensions(parser, options))
+    goto failure;
+
   for (i = 1; i < argc; i++) {
     if ((strcmp(argv[i], "-e") == 0) || (strcmp(argv[i], "--extension") == 0)) {
       i += 1;
@@ -261,12 +315,9 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[i], "footnotes") == 0) {
           continue;
         }
-        cmark_syntax_extension *syntax_extension = cmark_find_syntax_extension(argv[i]);
-        if (!syntax_extension) {
-          fprintf(stderr, "Unknown extension %s\n", argv[i]);
+        if (!attach_syntax_extension(parser, argv[i])) {
           goto failure;
         }
-        cmark_parser_attach_syntax_extension(parser, syntax_extension);
       } else {
         fprintf(stderr, "No argument provided for %s\n", argv[i - 1]);
         goto failure;

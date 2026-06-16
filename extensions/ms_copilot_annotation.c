@@ -412,6 +412,9 @@ static void postprocess_node(cmark_syntax_extension *extension,
 
 static cmark_node *postprocess(cmark_syntax_extension *extension,
                                cmark_parser *parser, cmark_node *root) {
+  if (!(parser->options & CMARK_OPT_MS_COPILOT_ANNOTATION))
+    return root;
+
   postprocess_node(extension, parser, root);
   cmark_consolidate_text_nodes(root);
   return root;
