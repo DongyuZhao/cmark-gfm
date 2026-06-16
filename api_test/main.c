@@ -245,10 +245,11 @@ static void accessors(test_batch_runner *runner) {
   cmark_node_free(doc);
 }
 
-static cmark_node *parse_with_math_extension(const char *markdown) {
+static cmark_node *parse_with_math_extension_options(const char *markdown,
+                                                     int options) {
   cmark_gfm_core_extensions_ensure_registered();
 
-  cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
+  cmark_parser *parser = cmark_parser_new(options);
   cmark_syntax_extension *math = cmark_find_syntax_extension("math");
 
   if (math) {
@@ -260,6 +261,10 @@ static cmark_node *parse_with_math_extension(const char *markdown) {
   cmark_parser_free(parser);
 
   return doc;
+}
+
+static cmark_node *parse_with_math_extension(const char *markdown) {
+  return parse_with_math_extension_options(markdown, CMARK_OPT_DEFAULT);
 }
 
 static void math_extension_accessors(test_batch_runner *runner) {
@@ -314,7 +319,9 @@ static void math_extension_accessors(test_batch_runner *runner) {
          CMARK_MATH_MODE_STANDALONE, "math inline mode is standalone");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension("Inline \\\\(x+y\\\\) end.\n");
+  doc = parse_with_math_extension_options("Inline \\\\(x+y\\\\) end.\n",
+                                          CMARK_OPT_DEFAULT |
+                                              CMARK_OPT_LATEX_MATH_DELIMITERS);
   paragraph = cmark_node_first_child(doc);
   math = cmark_node_next(cmark_node_first_child(paragraph));
   STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
@@ -325,7 +332,9 @@ static void math_extension_accessors(test_batch_runner *runner) {
          CMARK_MATH_MODE_EMBEDDED, "MathJax math inline mode is embedded");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension("Display \\\\[x+y\\\\] end.\n");
+  doc = parse_with_math_extension_options("Display \\\\[x+y\\\\] end.\n",
+                                          CMARK_OPT_DEFAULT |
+                                              CMARK_OPT_LATEX_MATH_DELIMITERS);
   paragraph = cmark_node_first_child(doc);
   math = cmark_node_next(cmark_node_first_child(paragraph));
   STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
@@ -337,7 +346,8 @@ static void math_extension_accessors(test_batch_runner *runner) {
          "MathJax math inline mode is standalone");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension("\\\\[x+y\\\\]\n");
+  doc = parse_with_math_extension_options(
+      "\\\\[x+y\\\\]\n", CMARK_OPT_DEFAULT | CMARK_OPT_LATEX_MATH_DELIMITERS);
   math = cmark_node_first_child(doc);
   STR_EQ(runner, cmark_node_get_type_string(math), "math_block",
          "MathJax standalone math block type string");

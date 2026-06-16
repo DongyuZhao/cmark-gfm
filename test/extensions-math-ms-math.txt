@@ -1,0 +1,57 @@
+---
+title: MS math delimiter compatibility extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-06-16'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## MS math delimiter compatibility
+
+These examples define the opt-in MS math delimiter surface. With
+`--ms-math-delimiters`, single-backslash delimiters are treated
+as math delimiters in addition to the default math extension syntax.
+
+```````````````````````````````` example
+Inline \(x+y\) end.
+.
+<p>Inline <span class="math math-inline">\(x+y\)</span> end.</p>
+````````````````````````````````
+
+```````````````````````````````` example
+Display \[x+y\] end.
+.
+<p>Display <span class="math math-display">\[x+y\]</span> end.</p>
+````````````````````````````````
+
+Single-backslash display math blocks bind before Markdown block syntax inside
+the body.
+
+```````````````````````````````` example
+\[
+\nabla \times \mathbf{E}
+=
+-\frac{\partial \mathbf{B}}{\partial t}
+\]
+.
+<div class="math math-display">\[\nabla \times \mathbf{E}
+=
+-\frac{\partial \mathbf{B}}{\partial t}\]</div>
+````````````````````````````````
+
+Double-backslash LaTeX delimiters are ordinary Markdown when only the MS math
+option is enabled.
+
+```````````````````````````````` example
+Inline \\(x+y\\) and display \\[a+b\\].
+.
+<p>Inline \(x+y\) and display \[a+b\].</p>
+````````````````````````````````
+
+Code spans bind before the opt-in MS math delimiters.
+
+```````````````````````````````` example
+Code `\(x\)` and math \(x\).
+.
+<p>Code <code>\(x\)</code> and math <span class="math math-inline">\(x\)</span>.</p>
+````````````````````````````````

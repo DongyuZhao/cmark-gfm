@@ -6,8 +6,8 @@
 #include <buffer.h>
 #include <chunk.h>
 #include <cmark_ctype.h>
-#include <html.h>
 #include <houdini.h>
+#include <html.h>
 #include <node.h>
 #include <parser.h>
 #include <render.h>
@@ -19,12 +19,15 @@ cmark_node_type CMARK_NODE_MATH_BLOCK;
 
 #define MATH_DELIM_DOLLAR_INLINE 1
 #define MATH_DELIM_DOLLAR_DISPLAY 2
-#define MATH_DELIM_BACKSLASH_INLINE 3
-#define MATH_DELIM_BACKSLASH_DISPLAY 4
+#define MATH_DELIM_LATEX_BACKSLASH_INLINE 3
+#define MATH_DELIM_LATEX_BACKSLASH_DISPLAY 4
+#define MATH_DELIM_MS_BACKSLASH_INLINE 5
+#define MATH_DELIM_MS_BACKSLASH_DISPLAY 6
 
 #define MATH_BLOCK_DELIM_NONE 0
-#define MATH_BLOCK_DELIM_BACKSLASH 1
+#define MATH_BLOCK_DELIM_LATEX_BACKSLASH 1
 #define MATH_BLOCK_DELIM_DOLLAR 2
+#define MATH_BLOCK_DELIM_MS_BACKSLASH 3
 
 typedef struct {
   cmark_chunk literal;
@@ -83,18 +86,15 @@ cmark_math_mode cmark_gfm_extensions_get_math_mode(cmark_node *node) {
   return math->mode;
 }
 
-int cmark_gfm_extensions_set_math_mode(cmark_node *node,
-                                       cmark_math_mode mode) {
+int cmark_gfm_extensions_set_math_mode(cmark_node *node, cmark_math_mode mode) {
   node_math *math = get_math(node);
   if (!math)
     return 0;
 
-  if (mode != CMARK_MATH_MODE_EMBEDDED &&
-      mode != CMARK_MATH_MODE_STANDALONE)
+  if (mode != CMARK_MATH_MODE_EMBEDDED && mode != CMARK_MATH_MODE_STANDALONE)
     return 0;
 
-  if (node->type == CMARK_NODE_MATH_BLOCK &&
-      mode != CMARK_MATH_MODE_STANDALONE)
+  if (node->type == CMARK_NODE_MATH_BLOCK && mode != CMARK_MATH_MODE_STANDALONE)
     return 0;
 
   math->mode = mode;
@@ -144,12 +144,10 @@ static int set_math_literal_trimmed(cmark_node *node, const unsigned char *data,
   return set_math_literal_bytes(node, data, len);
 }
 
-static cmark_node *make_math_node(cmark_syntax_extension *extension,
-                                  cmark_parser *parser,
-                                  cmark_node_type node_type,
-                                  cmark_math_mode mode,
-                                  const unsigned char *literal,
-                                  bufsize_t literal_len) {
+static cmark_node *
+make_math_node(cmark_syntax_extension *extension, cmark_parser *parser,
+               cmark_node_type node_type, cmark_math_mode mode,
+               const unsigned char *literal, bufsize_t literal_len) {
   cmark_node *node =
       cmark_node_new_with_mem_and_ext(node_type, parser->mem, extension);
   if (!node)
@@ -174,11 +172,17 @@ static int has_only_spaces_until_line_end(const unsigned char *data,
 }
 
 static int scan_math_block_open(const unsigned char *data, bufsize_t len,
-                                bufsize_t pos) {
-  if (pos + 3 <= len && data[pos] == '\\' && data[pos + 1] == '\\' &&
-      data[pos + 2] == '[' &&
+                                bufsize_t pos, int latex_math_delimiters,
+                                int ms_math_delimiters) {
+  if (latex_math_delimiters && pos + 3 <= len && data[pos] == '\\' &&
+      data[pos + 1] == '\\' && data[pos + 2] == '[' &&
       has_only_spaces_until_line_end(data, len, pos + 3))
-    return MATH_BLOCK_DELIM_BACKSLASH;
+    return MATH_BLOCK_DELIM_LATEX_BACKSLASH;
+
+  if (ms_math_delimiters && pos + 2 <= len && data[pos] == '\\' &&
+      data[pos + 1] == '[' &&
+      has_only_spaces_until_line_end(data, len, pos + 2))
+    return MATH_BLOCK_DELIM_MS_BACKSLASH;
 
   if (pos + 2 <= len && data[pos] == '$' && data[pos + 1] == '$' &&
       has_only_spaces_until_line_end(data, len, pos + 2))
@@ -189,10 +193,15 @@ static int scan_math_block_open(const unsigned char *data, bufsize_t len,
 
 static int scan_math_block_close(const unsigned char *data, bufsize_t len,
                                  bufsize_t pos, int block_delim) {
-  if (block_delim == MATH_BLOCK_DELIM_BACKSLASH) {
+  if (block_delim == MATH_BLOCK_DELIM_LATEX_BACKSLASH) {
     return pos + 3 <= len && data[pos] == '\\' && data[pos + 1] == '\\' &&
            data[pos + 2] == ']' &&
            has_only_spaces_until_line_end(data, len, pos + 3);
+  }
+
+  if (block_delim == MATH_BLOCK_DELIM_MS_BACKSLASH) {
+    return pos + 2 <= len && data[pos] == '\\' && data[pos + 1] == ']' &&
+           has_only_spaces_until_line_end(data, len, pos + 2);
   }
 
   if (block_delim == MATH_BLOCK_DELIM_DOLLAR) {
@@ -215,8 +224,10 @@ static cmark_node *try_opening_math_block(cmark_syntax_extension *extension,
   if (indented)
     return NULL;
 
-  block_delim = scan_math_block_open(input, (bufsize_t)len,
-                                     (bufsize_t)first_nonspace);
+  block_delim =
+      scan_math_block_open(input, (bufsize_t)len, (bufsize_t)first_nonspace,
+                           parser->options & CMARK_OPT_LATEX_MATH_DELIMITERS,
+                           parser->options & CMARK_OPT_MS_MATH_DELIMITERS);
   if (block_delim == MATH_BLOCK_DELIM_NONE)
     return NULL;
 
@@ -279,9 +290,8 @@ static cmark_node *make_delimiter_text(cmark_parser *parser,
 
 static cmark_node *match_math_delimiter(cmark_parser *parser,
                                         cmark_inline_parser *inline_parser,
-                                        unsigned char delim_char,
-                                        bufsize_t len, int can_open,
-                                        int can_close) {
+                                        unsigned char delim_char, bufsize_t len,
+                                        int can_open, int can_close) {
   cmark_node *node = make_delimiter_text(parser, inline_parser, len);
 
   if (!node)
@@ -294,16 +304,35 @@ static cmark_node *match_math_delimiter(cmark_parser *parser,
 
 static bufsize_t scan_backslash_close(const unsigned char *data, bufsize_t len,
                                       bufsize_t offset,
-                                      unsigned char close_char) {
-  if (offset + 3 <= len && data[offset] == '\\' && data[offset + 1] == '\\' &&
-      data[offset + 2] == close_char)
-    return 3;
+                                      unsigned char close_char,
+                                      int slash_count) {
+  int i;
+
+  if (offset + slash_count + 1 > len)
+    return 0;
+
+  for (i = 0; i < slash_count; i++) {
+    if (data[offset + i] != '\\')
+      return 0;
+  }
+
+  if (data[offset + slash_count] == close_char)
+    return (bufsize_t)(slash_count + 1);
 
   return 0;
 }
 
-static cmark_node *match(cmark_syntax_extension *extension, cmark_parser *parser,
-                         cmark_node *parent, unsigned char character,
+static int latex_math_delimiters_enabled(cmark_parser *parser) {
+  return parser->options & CMARK_OPT_LATEX_MATH_DELIMITERS;
+}
+
+static int ms_math_delimiters_enabled(cmark_parser *parser) {
+  return parser->options & CMARK_OPT_MS_MATH_DELIMITERS;
+}
+
+static cmark_node *match(cmark_syntax_extension *extension,
+                         cmark_parser *parser, cmark_node *parent,
+                         unsigned char character,
                          cmark_inline_parser *inline_parser) {
   cmark_chunk *chunk = cmark_inline_parser_get_chunk(inline_parser);
   int offset = cmark_inline_parser_get_offset(inline_parser);
@@ -320,29 +349,68 @@ static cmark_node *match(cmark_syntax_extension *extension, cmark_parser *parser
       return match_math_delimiter(parser, inline_parser,
                                   MATH_DELIM_DOLLAR_INLINE, 1, 1, 1);
   } else if (character == '\\') {
-    opener_len = scan_math_backslash_display_open(chunk->data, len, offset);
-    if (opener_len)
-      return match_math_delimiter(parser, inline_parser,
-                                  MATH_DELIM_BACKSLASH_DISPLAY,
-                                  opener_len, 1, 0);
+    if (latex_math_delimiters_enabled(parser)) {
+      opener_len =
+          scan_math_latex_backslash_display_open(chunk->data, len, offset);
+      if (opener_len)
+        return match_math_delimiter(parser, inline_parser,
+                                    MATH_DELIM_LATEX_BACKSLASH_DISPLAY,
+                                    opener_len, 1, 0);
 
-    opener_len = scan_math_backslash_inline_open(chunk->data, len, offset);
-    if (opener_len)
-      return match_math_delimiter(parser, inline_parser,
-                                  MATH_DELIM_BACKSLASH_INLINE,
-                                  opener_len, 1, 0);
+      opener_len =
+          scan_math_latex_backslash_inline_open(chunk->data, len, offset);
+      if (opener_len)
+        return match_math_delimiter(parser, inline_parser,
+                                    MATH_DELIM_LATEX_BACKSLASH_INLINE,
+                                    opener_len, 1, 0);
+    }
 
-    closer_len = scan_backslash_close(chunk->data, chunk->len, offset, ']');
-    if (closer_len)
-      return match_math_delimiter(parser, inline_parser,
-                                  MATH_DELIM_BACKSLASH_DISPLAY,
-                                  closer_len, 0, 1);
+    if (ms_math_delimiters_enabled(parser)) {
+      opener_len =
+          scan_math_ms_backslash_display_open(chunk->data, len, offset);
+      if (opener_len)
+        return match_math_delimiter(parser, inline_parser,
+                                    MATH_DELIM_MS_BACKSLASH_DISPLAY, opener_len,
+                                    1, 0);
 
-    closer_len = scan_backslash_close(chunk->data, chunk->len, offset, ')');
-    if (closer_len)
-      return match_math_delimiter(parser, inline_parser,
-                                  MATH_DELIM_BACKSLASH_INLINE,
-                                  closer_len, 0, 1);
+      opener_len = scan_math_ms_backslash_inline_open(chunk->data, len, offset);
+      if (opener_len)
+        return match_math_delimiter(parser, inline_parser,
+                                    MATH_DELIM_MS_BACKSLASH_INLINE, opener_len,
+                                    1, 0);
+    }
+
+    if (latex_math_delimiters_enabled(parser)) {
+      closer_len =
+          scan_backslash_close(chunk->data, chunk->len, offset, ']', 2);
+      if (closer_len)
+        return match_math_delimiter(parser, inline_parser,
+                                    MATH_DELIM_LATEX_BACKSLASH_DISPLAY,
+                                    closer_len, 0, 1);
+
+      closer_len =
+          scan_backslash_close(chunk->data, chunk->len, offset, ')', 2);
+      if (closer_len)
+        return match_math_delimiter(parser, inline_parser,
+                                    MATH_DELIM_LATEX_BACKSLASH_INLINE,
+                                    closer_len, 0, 1);
+    }
+
+    if (ms_math_delimiters_enabled(parser)) {
+      closer_len =
+          scan_backslash_close(chunk->data, chunk->len, offset, ']', 1);
+      if (closer_len)
+        return match_math_delimiter(parser, inline_parser,
+                                    MATH_DELIM_MS_BACKSLASH_DISPLAY, closer_len,
+                                    0, 1);
+
+      closer_len =
+          scan_backslash_close(chunk->data, chunk->len, offset, ')', 1);
+      if (closer_len)
+        return match_math_delimiter(parser, inline_parser,
+                                    MATH_DELIM_MS_BACKSLASH_INLINE, closer_len,
+                                    0, 1);
+    }
   }
 
   return NULL;
@@ -350,14 +418,24 @@ static cmark_node *match(cmark_syntax_extension *extension, cmark_parser *parser
 
 static cmark_math_mode mode_for_delim(unsigned char delim_char) {
   return delim_char == MATH_DELIM_DOLLAR_DISPLAY ||
-                 delim_char == MATH_DELIM_BACKSLASH_DISPLAY
+                 delim_char == MATH_DELIM_LATEX_BACKSLASH_DISPLAY ||
+                 delim_char == MATH_DELIM_MS_BACKSLASH_DISPLAY
              ? CMARK_MATH_MODE_STANDALONE
              : CMARK_MATH_MODE_EMBEDDED;
 }
 
 static int is_backslash_delim(unsigned char delim_char) {
-  return delim_char == MATH_DELIM_BACKSLASH_INLINE ||
-         delim_char == MATH_DELIM_BACKSLASH_DISPLAY;
+  return delim_char == MATH_DELIM_LATEX_BACKSLASH_INLINE ||
+         delim_char == MATH_DELIM_LATEX_BACKSLASH_DISPLAY ||
+         delim_char == MATH_DELIM_MS_BACKSLASH_INLINE ||
+         delim_char == MATH_DELIM_MS_BACKSLASH_DISPLAY;
+}
+
+static int slash_count_for_delim(unsigned char delim_char) {
+  return delim_char == MATH_DELIM_MS_BACKSLASH_INLINE ||
+                 delim_char == MATH_DELIM_MS_BACKSLASH_DISPLAY
+             ? 1
+             : 2;
 }
 
 static void remove_delimiters(cmark_inline_parser *inline_parser,
@@ -435,8 +513,8 @@ static delimiter *insert_math(cmark_syntax_extension *extension,
       is_backslash_delim((unsigned char)opener->delim_char))
     goto done;
 
-  if (opener->delim_char == MATH_DELIM_DOLLAR_INLINE &&
-      literal_len > 0 && literal[0] == '`') {
+  if (opener->delim_char == MATH_DELIM_DOLLAR_INLINE && literal_len > 0 &&
+      literal[0] == '`') {
     if (literal_len < 2 || literal[literal_len - 1] != '`')
       goto done;
 
@@ -446,7 +524,8 @@ static delimiter *insert_math(cmark_syntax_extension *extension,
 
   if (is_backslash_delim((unsigned char)opener->delim_char)) {
     math = make_backslash_delimited_math(
-        extension, parser, mode, chunk->data, body_start, body_end, 2,
+        extension, parser, mode, chunk->data, body_start, body_end,
+        slash_count_for_delim((unsigned char)opener->delim_char),
         mode == CMARK_MATH_MODE_STANDALONE ? ']' : ')');
   } else {
     math = make_math_node(extension, parser, CMARK_NODE_MATH_INLINE, mode,
@@ -496,8 +575,8 @@ static void render_html_math(cmark_strbuf *html, cmark_node *node) {
   if (!math)
     return;
 
-  use_dollars = literal_contains_backslash_close(&math->literal,
-                                                 standalone ? ']' : ')');
+  use_dollars =
+      literal_contains_backslash_close(&math->literal, standalone ? ']' : ')');
 
   if (use_dollars) {
     cmark_strbuf_puts(html, standalone ? "$$" : "$");
@@ -523,9 +602,9 @@ static void html_render(cmark_syntax_extension *extension,
     cmark_strbuf_puts(renderer->html, "</div>\n");
   } else {
     cmark_strbuf_puts(renderer->html, "<span class=\"math ");
-    cmark_strbuf_puts(renderer->html,
-                      is_standalone_math_node(node) ? "math-display" :
-                                                      "math-inline");
+    cmark_strbuf_puts(renderer->html, is_standalone_math_node(node)
+                                          ? "math-display"
+                                          : "math-inline");
     cmark_strbuf_puts(renderer->html, "\">");
     render_html_math(renderer->html, node);
     cmark_strbuf_puts(renderer->html, "</span>");
@@ -573,9 +652,9 @@ static void plaintext_render(cmark_syntax_extension *extension,
   if (!math || ev_type != CMARK_EVENT_ENTER)
     return;
 
-  renderer->out(renderer, node, cmark_chunk_to_cstr(renderer->mem,
-                                                    &math->literal),
-                false, LITERAL);
+  renderer->out(renderer, node,
+                cmark_chunk_to_cstr(renderer->mem, &math->literal), false,
+                LITERAL);
 }
 
 static const char *get_type_string(cmark_syntax_extension *extension,
@@ -605,11 +684,10 @@ static int info_is_math(cmark_chunk *info) {
   return info->len == 4 && memcmp(info->data, "math", 4) == 0;
 }
 
-static cmark_node *new_math_block_from_literal(cmark_syntax_extension *extension,
-                                               cmark_mem *mem,
-                                               cmark_node *oldnode,
-                                               const unsigned char *literal,
-                                               bufsize_t literal_len) {
+static cmark_node *
+new_math_block_from_literal(cmark_syntax_extension *extension, cmark_mem *mem,
+                            cmark_node *oldnode, const unsigned char *literal,
+                            bufsize_t literal_len) {
   cmark_node *math =
       cmark_node_new_with_mem_and_ext(CMARK_NODE_MATH_BLOCK, mem, extension);
   if (!math)
@@ -628,8 +706,8 @@ static void replace_with_math_block(cmark_syntax_extension *extension,
                                     cmark_mem *mem, cmark_node *oldnode,
                                     const unsigned char *literal,
                                     bufsize_t literal_len) {
-  cmark_node *math =
-      new_math_block_from_literal(extension, mem, oldnode, literal, literal_len);
+  cmark_node *math = new_math_block_from_literal(extension, mem, oldnode,
+                                                 literal, literal_len);
   if (!math)
     return;
 
@@ -653,7 +731,8 @@ static void postprocess_node(cmark_syntax_extension *extension,
     return;
   }
 
-  if (node->type == CMARK_NODE_CODE_BLOCK && info_is_math(&node->as.code.info)) {
+  if (node->type == CMARK_NODE_CODE_BLOCK &&
+      info_is_math(&node->as.code.info)) {
     replace_with_math_block(extension, parser->mem, node,
                             node->as.code.literal.data,
                             node->as.code.literal.len);
@@ -709,14 +788,18 @@ cmark_syntax_extension *create_math_extension(void) {
   cmark_syntax_extension_set_inline_from_delim_func(ext, insert_math);
 
   special_chars = cmark_llist_append(mem, special_chars, (void *)'$');
+  special_chars =
+      cmark_llist_append(mem, special_chars, (void *)MATH_DELIM_DOLLAR_INLINE);
+  special_chars =
+      cmark_llist_append(mem, special_chars, (void *)MATH_DELIM_DOLLAR_DISPLAY);
   special_chars = cmark_llist_append(mem, special_chars,
-                                     (void *)MATH_DELIM_DOLLAR_INLINE);
+                                     (void *)MATH_DELIM_LATEX_BACKSLASH_INLINE);
+  special_chars = cmark_llist_append(
+      mem, special_chars, (void *)MATH_DELIM_LATEX_BACKSLASH_DISPLAY);
   special_chars = cmark_llist_append(mem, special_chars,
-                                     (void *)MATH_DELIM_DOLLAR_DISPLAY);
+                                     (void *)MATH_DELIM_MS_BACKSLASH_INLINE);
   special_chars = cmark_llist_append(mem, special_chars,
-                                     (void *)MATH_DELIM_BACKSLASH_INLINE);
-  special_chars = cmark_llist_append(mem, special_chars,
-                                     (void *)MATH_DELIM_BACKSLASH_DISPLAY);
+                                     (void *)MATH_DELIM_MS_BACKSLASH_DISPLAY);
   cmark_syntax_extension_set_special_inline_chars(ext, special_chars);
   cmark_syntax_extension_set_emphasis(ext, 1);
 

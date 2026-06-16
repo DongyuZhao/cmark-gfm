@@ -768,6 +768,14 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_FULL_INFO_STRING (1 << 16)
 
+/** Enable LaTeX math delimiters: \\( ... \\) and \\[ ... \\].
+ */
+#define CMARK_OPT_LATEX_MATH_DELIMITERS (1 << 18)
+
+/** Enable MS math compatibility delimiters: \( ... \) and \[ ... \].
+ */
+#define CMARK_OPT_MS_MATH_DELIMITERS (1 << 19)
+
 /**
  * ## Version information
  */

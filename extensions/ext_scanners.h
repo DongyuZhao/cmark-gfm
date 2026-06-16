@@ -15,8 +15,10 @@ bufsize_t _scan_tasklist(const unsigned char *p);
 bufsize_t _scan_math_dollar_inline_open(const unsigned char *p);
 bufsize_t _scan_math_dollar_backtick_open(const unsigned char *p);
 bufsize_t _scan_math_dollar_display_open(const unsigned char *p);
-bufsize_t _scan_math_backslash_inline_open(const unsigned char *p);
-bufsize_t _scan_math_backslash_display_open(const unsigned char *p);
+bufsize_t _scan_math_latex_backslash_inline_open(const unsigned char *p);
+bufsize_t _scan_math_latex_backslash_display_open(const unsigned char *p);
+bufsize_t _scan_math_ms_backslash_inline_open(const unsigned char *p);
+bufsize_t _scan_math_ms_backslash_display_open(const unsigned char *p);
 
 #define scan_table_start(c, l, n) _ext_scan_at(&_scan_table_start, c, l, n)
 #define scan_table_cell(c, l, n) _ext_scan_at(&_scan_table_cell, c, l, n)
@@ -26,8 +28,10 @@ bufsize_t _scan_math_backslash_display_open(const unsigned char *p);
 #define scan_math_dollar_inline_open(c, l, n) _ext_scan_at(&_scan_math_dollar_inline_open, c, l, n)
 #define scan_math_dollar_backtick_open(c, l, n) _ext_scan_at(&_scan_math_dollar_backtick_open, c, l, n)
 #define scan_math_dollar_display_open(c, l, n) _ext_scan_at(&_scan_math_dollar_display_open, c, l, n)
-#define scan_math_backslash_inline_open(c, l, n) _ext_scan_at(&_scan_math_backslash_inline_open, c, l, n)
-#define scan_math_backslash_display_open(c, l, n) _ext_scan_at(&_scan_math_backslash_display_open, c, l, n)
+#define scan_math_latex_backslash_inline_open(c, l, n) _ext_scan_at(&_scan_math_latex_backslash_inline_open, c, l, n)
+#define scan_math_latex_backslash_display_open(c, l, n) _ext_scan_at(&_scan_math_latex_backslash_display_open, c, l, n)
+#define scan_math_ms_backslash_inline_open(c, l, n) _ext_scan_at(&_scan_math_ms_backslash_inline_open, c, l, n)
+#define scan_math_ms_backslash_display_open(c, l, n) _ext_scan_at(&_scan_math_ms_backslash_display_open, c, l, n)
 
 #ifdef __cplusplus
 }

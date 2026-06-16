@@ -87,7 +87,16 @@ IF (PYTHONINTERP_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-math-mathjax.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-math-delimiters"
+    "--extensions" "math"
+    )
+
+  add_test(math_ms_math_compatibility_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
+    "--no-normalize"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-math-ms-math.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --ms-math-delimiters"
     "--extensions" "math"
     )
 
@@ -96,7 +105,7 @@ IF (PYTHONINTERP_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-math-conflicts.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-math-delimiters"
     "--extensions" "math"
     )
 
@@ -112,7 +121,7 @@ IF (PYTHONINTERP_FOUND)
   add_test(inline_delimiter_stack_tests_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/inline_delimiter_stack_tests.py"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-math-delimiters"
     )
 
   add_test(ms_copilot_accordion_extension_executable

@@ -64,6 +64,10 @@ void print_usage() {
          "                                  instead of align attributes.\n");
   printf("  --full-info-string              Include remainder of code block info\n"
          "                                  string in a separate attribute.\n");
+  printf("  --latex-math-delimiters         Enable LaTeX math \\\\(...\\\\) and\n"
+         "                                  \\\\[...\\\\] delimiters when math is enabled.\n");
+  printf("  --ms-math-delimiters            Enable MS math \\(...\\) and \\[...\\]\n"
+         "                                  delimiters when math is enabled.\n");
   printf("  --help, -h       Print usage information\n");
   printf("  --version        Print version\n");
 }
@@ -165,6 +169,10 @@ int main(int argc, char *argv[]) {
       goto success;
     } else if (strcmp(argv[i], "--full-info-string") == 0) {
       options |= CMARK_OPT_FULL_INFO_STRING;
+    } else if (strcmp(argv[i], "--latex-math-delimiters") == 0) {
+      options |= CMARK_OPT_LATEX_MATH_DELIMITERS;
+    } else if (strcmp(argv[i], "--ms-math-delimiters") == 0) {
+      options |= CMARK_OPT_MS_MATH_DELIMITERS;
     } else if (strcmp(argv[i], "--table-prefer-style-attributes") == 0) {
       options |= CMARK_OPT_TABLE_PREFER_STYLE_ATTRIBUTES;
     } else if (strcmp(argv[i], "--strikethrough-double-tilde") == 0) {

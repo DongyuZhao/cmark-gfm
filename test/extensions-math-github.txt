@@ -47,6 +47,20 @@ $$
 <div class="math math-display">\[x+y\]</div>
 ````````````````````````````````
 
+Backslash math delimiters are not enabled by default.
+
+```````````````````````````````` example
+Inline \\(x+y\\) and \(a+b\).
+.
+<p>Inline \(x+y\) and (a+b).</p>
+````````````````````````````````
+
+```````````````````````````````` example
+Display \\[x+y\\] and \[a+b\].
+.
+<p>Display \[x+y\] and [a+b].</p>
+````````````````````````````````
+
 GitHub's ```math fenced-code form is a math block; the fence delimiters and
 `math` info string are not part of the math body.
 
