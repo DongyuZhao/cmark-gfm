@@ -69,6 +69,18 @@ There are also libraries that wrap `libcmark` for
 [Scala](https://github.com/sparsetech/cmark-scala) and
 [Node.js](https://github.com/killa123/node-cmark).
 
+Swift Package Manager
+---------------------
+
+This repository can also be consumed directly with Swift Package Manager:
+
+```swift
+.package(url: "https://github.com/github/cmark-gfm.git", from: "0.29.0")
+```
+
+Then add the `cmark-gfm` product to your target dependencies and `import cmark_gfm`
+from Swift.
+
 Installing
 ----------
 
