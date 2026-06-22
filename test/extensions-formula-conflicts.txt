@@ -1,0 +1,71 @@
+---
+title: Formula syntax conflict extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-05-09'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## Formula syntax conflict behavior
+
+These examples define precedence where GitHub formula compatibility and LaTeX
+compatibility touch existing Markdown syntax or each other.
+
+Code spans bind before formula delimiters inside the span.
+
+```````````````````````````````` example
+Code `$x$` and formula $x$.
+.
+<p>Code <code>$x$</code> and formula <span class="formula formula-inline">\(x\)</span>.</p>
+````````````````````````````````
+
+The GitHub `$`...`$` formula form binds as formula, not as a code span.
+
+```````````````````````````````` example
+Formula $`x`$ not code.
+.
+<p>Formula <span class="formula formula-inline">\(x\)</span> not code.</p>
+````````````````````````````````
+
+A same-line display close followed by non-whitespace trailing text is inline
+display formula inside a paragraph, not a formula block.
+
+```````````````````````````````` example
+$$x$$ trailing
+.
+<p><span class="formula formula-display">\[x\]</span> trailing</p>
+````````````````````````````````
+
+```````````````````````````````` example
+\\[x\\] trailing
+.
+<p><span class="formula formula-display">\[x\]</span> trailing</p>
+````````````````````````````````
+
+Indented code takes precedence over formula block openers.
+
+```````````````````````````````` example
+    $$x$$
+.
+<pre><code>$$x$$
+</code></pre>
+````````````````````````````````
+
+Non-`formula` fenced code remains ordinary code.
+
+```````````````````````````````` example
+```js
+$x$
+```
+.
+<pre><code class="language-js">$x$
+</code></pre>
+````````````````````````````````
+
+Code spans also bind before LaTeX backslash delimiters.
+
+```````````````````````````````` example
+Code `\\(x\\)` and formula \\(x\\).
+.
+<p>Code <code>\\(x\\)</code> and formula <span class="formula formula-inline">\(x\)</span>.</p>
+````````````````````````````````

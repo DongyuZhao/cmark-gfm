@@ -11,10 +11,10 @@ extern "C" {
 #include <stdint.h>
 
 typedef enum {
-  CMARK_MATH_MODE_NONE = 0,
-  CMARK_MATH_MODE_EMBEDDED,
-  CMARK_MATH_MODE_STANDALONE
-} cmark_math_mode;
+  CMARK_FORMULA_MODE_NONE = 0,
+  CMARK_FORMULA_MODE_EMBEDDED,
+  CMARK_FORMULA_MODE_STANDALONE
+} cmark_formula_mode;
 
 CMARK_GFM_EXPORT
 void cmark_gfm_core_extensions_ensure_registered(void);
@@ -53,26 +53,26 @@ bool cmark_gfm_extensions_get_tasklist_item_checked(cmark_node *node);
 CMARK_GFM_EXPORT
 int cmark_gfm_extensions_set_tasklist_item_checked(cmark_node *node, bool is_checked);
 
-/** Returns the literal math payload for math extension nodes, or NULL on error.
+/** Returns the literal formula payload for formula extension nodes, or NULL on error.
  */
 CMARK_GFM_EXPORT
-const char *cmark_gfm_extensions_get_math_literal(cmark_node *node);
+const char *cmark_gfm_extensions_get_formula_literal(cmark_node *node);
 
-/** Sets the literal math payload for math extension nodes, returning 1 on success and 0 on error.
+/** Sets the literal formula payload for formula extension nodes, returning 1 on success and 0 on error.
  */
 CMARK_GFM_EXPORT
-int cmark_gfm_extensions_set_math_literal(cmark_node *node, const char *literal);
+int cmark_gfm_extensions_set_formula_literal(cmark_node *node, const char *literal);
 
-/** Returns the paragraph-internal layout mode for math extension nodes.
+/** Returns the paragraph-internal layout mode for formula extension nodes.
  */
 CMARK_GFM_EXPORT
-cmark_math_mode cmark_gfm_extensions_get_math_mode(cmark_node *node);
+cmark_formula_mode cmark_gfm_extensions_get_formula_mode(cmark_node *node);
 
-/** Sets the paragraph-internal layout mode for math extension nodes.
+/** Sets the paragraph-internal layout mode for formula extension nodes.
  */
 CMARK_GFM_EXPORT
-int cmark_gfm_extensions_set_math_mode(cmark_node *node,
-                                       cmark_math_mode mode);
+int cmark_gfm_extensions_set_formula_mode(cmark_node *node,
+                                       cmark_formula_mode mode);
 
 /** Returns the citation ref payload for MS Copilot citation extension nodes, or NULL on error.
  */

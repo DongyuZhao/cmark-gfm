@@ -24,7 +24,7 @@ static const int num_node_types = sizeof(node_types) / sizeof(*node_types);
 static void test_md_to_html(test_batch_runner *runner, const char *markdown,
                             const char *expected_html, const char *msg);
 
-static cmark_node *parse_with_math_extension(const char *markdown);
+static cmark_node *parse_with_formula_extension(const char *markdown);
 
 static void test_content(test_batch_runner *runner, cmark_node_type type,
                          unsigned int *allowed_content);
@@ -245,15 +245,15 @@ static void accessors(test_batch_runner *runner) {
   cmark_node_free(doc);
 }
 
-static cmark_node *parse_with_math_extension_options(const char *markdown,
+static cmark_node *parse_with_formula_extension_options(const char *markdown,
                                                      int options) {
   cmark_gfm_core_extensions_ensure_registered();
 
   cmark_parser *parser = cmark_parser_new(options);
-  cmark_syntax_extension *math = cmark_find_syntax_extension("math");
+  cmark_syntax_extension *formula = cmark_find_syntax_extension("formula");
 
-  if (math) {
-    cmark_parser_attach_syntax_extension(parser, math);
+  if (formula) {
+    cmark_parser_attach_syntax_extension(parser, formula);
   }
 
   cmark_parser_feed(parser, markdown, strlen(markdown));
@@ -263,106 +263,106 @@ static cmark_node *parse_with_math_extension_options(const char *markdown,
   return doc;
 }
 
-static cmark_node *parse_with_math_extension(const char *markdown) {
-  return parse_with_math_extension_options(markdown, CMARK_OPT_DEFAULT);
+static cmark_node *parse_with_formula_extension(const char *markdown) {
+  return parse_with_formula_extension_options(markdown, CMARK_OPT_DEFAULT);
 }
 
-static void math_extension_accessors(test_batch_runner *runner) {
-  cmark_node *doc = parse_with_math_extension("Inline $x+y$ end.\n");
+static void formula_extension_accessors(test_batch_runner *runner) {
+  cmark_node *doc = parse_with_formula_extension("Inline $x+y$ end.\n");
   cmark_node *paragraph = cmark_node_first_child(doc);
-  cmark_node *math = cmark_node_next(cmark_node_first_child(paragraph));
+  cmark_node *formula = cmark_node_next(cmark_node_first_child(paragraph));
 
-  STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
-         "math inline type string");
-  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
-         "math inline literal");
-  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
-         CMARK_MATH_MODE_EMBEDDED, "math inline mode is embedded");
-  INT_EQ(runner, cmark_gfm_extensions_set_math_literal(math, "z"), 1,
-         "set math literal succeeds");
-  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "z",
-         "math literal setter updates payload");
-  INT_EQ(runner, cmark_gfm_extensions_set_math_mode(
-                     math, CMARK_MATH_MODE_STANDALONE),
-         1, "set math mode succeeds");
-  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
-         CMARK_MATH_MODE_STANDALONE, "math mode setter updates mode");
-  INT_EQ(runner, cmark_gfm_extensions_set_math_literal(paragraph, "nope"), 0,
-         "set math literal rejects non-math nodes");
-  INT_EQ(runner, cmark_gfm_extensions_set_math_mode(
-                     paragraph, CMARK_MATH_MODE_EMBEDDED),
-         0, "set math mode rejects non-math nodes");
-  OK(runner, cmark_gfm_extensions_get_math_literal(paragraph) == NULL,
-     "get math literal rejects non-math nodes");
-  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(paragraph),
-         CMARK_MATH_MODE_NONE, "get math mode rejects non-math nodes");
+  STR_EQ(runner, cmark_node_get_type_string(formula), "formula_inline",
+         "formula inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "x+y",
+         "formula inline literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_formula_mode(formula),
+         CMARK_FORMULA_MODE_EMBEDDED, "formula inline mode is embedded");
+  INT_EQ(runner, cmark_gfm_extensions_set_formula_literal(formula, "z"), 1,
+         "set formula literal succeeds");
+  STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "z",
+         "formula literal setter updates payload");
+  INT_EQ(runner, cmark_gfm_extensions_set_formula_mode(
+                     formula, CMARK_FORMULA_MODE_STANDALONE),
+         1, "set formula mode succeeds");
+  INT_EQ(runner, cmark_gfm_extensions_get_formula_mode(formula),
+         CMARK_FORMULA_MODE_STANDALONE, "formula mode setter updates mode");
+  INT_EQ(runner, cmark_gfm_extensions_set_formula_literal(paragraph, "nope"), 0,
+         "set formula literal rejects non-formula nodes");
+  INT_EQ(runner, cmark_gfm_extensions_set_formula_mode(
+                     paragraph, CMARK_FORMULA_MODE_EMBEDDED),
+         0, "set formula mode rejects non-formula nodes");
+  OK(runner, cmark_gfm_extensions_get_formula_literal(paragraph) == NULL,
+     "get formula literal rejects non-formula nodes");
+  INT_EQ(runner, cmark_gfm_extensions_get_formula_mode(paragraph),
+         CMARK_FORMULA_MODE_NONE, "get formula mode rejects non-formula nodes");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension("$$x+y$$\n");
-  math = cmark_node_first_child(doc);
-  STR_EQ(runner, cmark_node_get_type_string(math), "math_block",
-         "standalone math block type string");
-  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
-         "standalone math block literal");
-  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
-         CMARK_MATH_MODE_STANDALONE, "math block mode is standalone");
+  doc = parse_with_formula_extension("$$x+y$$\n");
+  formula = cmark_node_first_child(doc);
+  STR_EQ(runner, cmark_node_get_type_string(formula), "formula_block",
+         "standalone formula block type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "x+y",
+         "standalone formula block literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_formula_mode(formula),
+         CMARK_FORMULA_MODE_STANDALONE, "formula block mode is standalone");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension("Display $$a+b$$ end.\n");
+  doc = parse_with_formula_extension("Display $$a+b$$ end.\n");
   paragraph = cmark_node_first_child(doc);
-  math = cmark_node_next(cmark_node_first_child(paragraph));
-  STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
-         "standalone math inline type string");
-  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "a+b",
-         "standalone math inline literal");
-  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
-         CMARK_MATH_MODE_STANDALONE, "math inline mode is standalone");
+  formula = cmark_node_next(cmark_node_first_child(paragraph));
+  STR_EQ(runner, cmark_node_get_type_string(formula), "formula_inline",
+         "standalone formula inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "a+b",
+         "standalone formula inline literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_formula_mode(formula),
+         CMARK_FORMULA_MODE_STANDALONE, "formula inline mode is standalone");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension_options("Inline \\\\(x+y\\\\) end.\n",
+  doc = parse_with_formula_extension_options("Inline \\\\(x+y\\\\) end.\n",
                                           CMARK_OPT_DEFAULT |
-                                              CMARK_OPT_LATEX_MATH_DELIMITERS);
+                                              CMARK_OPT_LATEX_FORMULA_DELIMITERS);
   paragraph = cmark_node_first_child(doc);
-  math = cmark_node_next(cmark_node_first_child(paragraph));
-  STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
-         "MathJax embedded math inline type string");
-  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
-         "MathJax embedded math inline literal");
-  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
-         CMARK_MATH_MODE_EMBEDDED, "MathJax math inline mode is embedded");
+  formula = cmark_node_next(cmark_node_first_child(paragraph));
+  STR_EQ(runner, cmark_node_get_type_string(formula), "formula_inline",
+         "LaTeX embedded formula inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "x+y",
+         "LaTeX embedded formula inline literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_formula_mode(formula),
+         CMARK_FORMULA_MODE_EMBEDDED, "LaTeX formula inline mode is embedded");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension_options("Display \\\\[x+y\\\\] end.\n",
+  doc = parse_with_formula_extension_options("Display \\\\[x+y\\\\] end.\n",
                                           CMARK_OPT_DEFAULT |
-                                              CMARK_OPT_LATEX_MATH_DELIMITERS);
+                                              CMARK_OPT_LATEX_FORMULA_DELIMITERS);
   paragraph = cmark_node_first_child(doc);
-  math = cmark_node_next(cmark_node_first_child(paragraph));
-  STR_EQ(runner, cmark_node_get_type_string(math), "math_inline",
-         "MathJax standalone math inline type string");
-  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
-         "MathJax standalone math inline literal");
-  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
-         CMARK_MATH_MODE_STANDALONE,
-         "MathJax math inline mode is standalone");
+  formula = cmark_node_next(cmark_node_first_child(paragraph));
+  STR_EQ(runner, cmark_node_get_type_string(formula), "formula_inline",
+         "LaTeX standalone formula inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "x+y",
+         "LaTeX standalone formula inline literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_formula_mode(formula),
+         CMARK_FORMULA_MODE_STANDALONE,
+         "LaTeX formula inline mode is standalone");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension_options(
-      "\\\\[x+y\\\\]\n", CMARK_OPT_DEFAULT | CMARK_OPT_LATEX_MATH_DELIMITERS);
-  math = cmark_node_first_child(doc);
-  STR_EQ(runner, cmark_node_get_type_string(math), "math_block",
-         "MathJax standalone math block type string");
-  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
-         "MathJax standalone math block literal");
-  INT_EQ(runner, cmark_gfm_extensions_get_math_mode(math),
-         CMARK_MATH_MODE_STANDALONE, "MathJax math block mode is standalone");
+  doc = parse_with_formula_extension_options(
+      "\\\\[x+y\\\\]\n", CMARK_OPT_DEFAULT | CMARK_OPT_LATEX_FORMULA_DELIMITERS);
+  formula = cmark_node_first_child(doc);
+  STR_EQ(runner, cmark_node_get_type_string(formula), "formula_block",
+         "LaTeX standalone formula block type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "x+y",
+         "LaTeX standalone formula block literal");
+  INT_EQ(runner, cmark_gfm_extensions_get_formula_mode(formula),
+         CMARK_FORMULA_MODE_STANDALONE, "LaTeX formula block mode is standalone");
   cmark_node_free(doc);
 
-  doc = parse_with_math_extension("```math\nx+y\n```\n");
-  math = cmark_node_first_child(doc);
-  STR_EQ(runner, cmark_node_get_type_string(math), "math_block",
-         "math fence becomes standalone block");
-  STR_EQ(runner, cmark_gfm_extensions_get_math_literal(math), "x+y",
-         "math fence literal is trimmed");
+  doc = parse_with_formula_extension("```formula\nx+y\n```\n");
+  formula = cmark_node_first_child(doc);
+  STR_EQ(runner, cmark_node_get_type_string(formula), "formula_block",
+         "formula fence becomes standalone block");
+  STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "x+y",
+         "formula fence literal is trimmed");
   cmark_node_free(doc);
 }
 
@@ -1260,7 +1260,7 @@ int main() {
   version(runner);
   constructor(runner);
   accessors(runner);
-  math_extension_accessors(runner);
+  formula_extension_accessors(runner);
   node_check(runner);
   iterator(runner);
   iterator_delete(runner);

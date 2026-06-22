@@ -1,25 +1,25 @@
 ---
-title: MathJax math compatibility extension test
+title: LaTeX formula compatibility extension test
 author: Dongyu Zhao
 version: 0.1
 date: '2026-05-09'
 license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
 ...
 
-## MathJax math compatibility
+## LaTeX formula compatibility
 
-These examples define the opt-in LaTeX/MathJax delimiter surface supported by
-the `math` extension when `--latex-math-delimiters` is enabled, in addition to
+These examples define the opt-in LaTeX delimiter surface supported by
+the `formula` extension when `--latex-formula-delimiters` is enabled, in addition to
 GitHub's documented `$` and `$$` forms.
 
 ```````````````````````````````` example
 Inline \\(x+y\\) end.
 .
-<p>Inline <span class="math math-inline">\(x+y\)</span> end.</p>
+<p>Inline <span class="formula formula-inline">\(x+y\)</span> end.</p>
 ````````````````````````````````
 
-Single-backslash MathJax-looking delimiters are ordinary Markdown escapes, not
-math delimiters.
+Single-backslash LaTeX-looking delimiters are ordinary Markdown escapes, not
+formula delimiters.
 
 ```````````````````````````````` example
 Inline \(x+y\) end.
@@ -30,7 +30,7 @@ Inline \(x+y\) end.
 ```````````````````````````````` example
 Display \\[x+y\\] end.
 .
-<p>Display <span class="math math-display">\[x+y\]</span> end.</p>
+<p>Display <span class="formula formula-display">\[x+y\]</span> end.</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -42,7 +42,7 @@ Display \[x+y\] end.
 ```````````````````````````````` example
 \\[x+y\\]
 .
-<div class="math math-display">\[x+y\]</div>
+<div class="formula formula-display">\[x+y\]</div>
 ````````````````````````````````
 
 ```````````````````````````````` example
@@ -50,41 +50,41 @@ Display \[x+y\] end.
 x+y
 \\]
 .
-<div class="math math-display">\[x+y\]</div>
+<div class="formula formula-display">\[x+y\]</div>
 ````````````````````````````````
 
-Display math blocks bind before Markdown block syntax inside the body.
+Display formula blocks bind before Markdown block syntax inside the body.
 
 ```````````````````````````````` example
 \\[
-\\nabla \\times \\mathbf{E}
+\\nabla \\times \\boldsymbol{E}
 =
--\\frac{\\partial \\mathbf{B}}{\\partial t}
+-\\frac{\\partial \\boldsymbol{B}}{\\partial t}
 \\]
 .
-<div class="math math-display">\[\\nabla \\times \\mathbf{E}
+<div class="formula formula-display">\[\\nabla \\times \\boldsymbol{E}
 =
--\\frac{\\partial \\mathbf{B}}{\\partial t}\]</div>
+-\\frac{\\partial \\boldsymbol{B}}{\\partial t}\]</div>
 ````````````````````````````````
 
 ```````````````````````````````` example
 Text $$x+y$$ end.
 .
-<p>Text <span class="math math-display">\[x+y\]</span> end.</p>
+<p>Text <span class="formula formula-display">\[x+y\]</span> end.</p>
 ````````````````````````````````
 
-Dollar display math blocks bind before Markdown block syntax inside the body.
+Dollar display formula blocks bind before Markdown block syntax inside the body.
 
 ```````````````````````````````` example
 $$
-\\nabla \\times \\mathbf{E}
+\\nabla \\times \\boldsymbol{E}
 =
--\\frac{\\partial \\mathbf{B}}{\\partial t}
+-\\frac{\\partial \\boldsymbol{B}}{\\partial t}
 $$
 .
-<div class="math math-display">\[\\nabla \\times \\mathbf{E}
+<div class="formula formula-display">\[\\nabla \\times \\boldsymbol{E}
 =
--\\frac{\\partial \\mathbf{B}}{\\partial t}\]</div>
+-\\frac{\\partial \\boldsymbol{B}}{\\partial t}\]</div>
 ````````````````````````````````
 
 Escaped backslash closers are body text, not delimiters.
@@ -92,20 +92,20 @@ Escaped backslash closers are body text, not delimiters.
 ```````````````````````````````` example
 Text \\(a \) b\\) end.
 .
-<p>Text <span class="math math-inline">\(a ) b\)</span> end.</p>
+<p>Text <span class="formula formula-inline">\(a ) b\)</span> end.</p>
 ````````````````````````````````
 
 When a body contains the matching backslash delimiter, render with dollar
-delimiters so MathJax does not close early.
+delimiters so LaTeX does not close early.
 
 ```````````````````````````````` example
 Text $a\\)b$ end.
 .
-<p>Text <span class="math math-inline">$a\\)b$</span> end.</p>
+<p>Text <span class="formula formula-inline">$a\\)b$</span> end.</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
 Text $$a\\]b$$ end.
 .
-<p>Text <span class="math math-display">$$a\\]b$$</span> end.</p>
+<p>Text <span class="formula formula-display">$$a\\]b$$</span> end.</p>
 ````````````````````````````````

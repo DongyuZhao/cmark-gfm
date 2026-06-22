@@ -1,0 +1,57 @@
+---
+title: MS formula delimiter compatibility extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-06-16'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## MS formula delimiter compatibility
+
+These examples define the opt-in MS formula delimiter surface. With
+`--ms-formula-delimiters`, single-backslash delimiters are treated
+as formula delimiters in addition to the default formula extension syntax.
+
+```````````````````````````````` example
+Inline \(x+y\) end.
+.
+<p>Inline <span class="formula formula-inline">\(x+y\)</span> end.</p>
+````````````````````````````````
+
+```````````````````````````````` example
+Display \[x+y\] end.
+.
+<p>Display <span class="formula formula-display">\[x+y\]</span> end.</p>
+````````````````````````````````
+
+Single-backslash display formula blocks bind before Markdown block syntax inside
+the body.
+
+```````````````````````````````` example
+\[
+\nabla \times \boldsymbol{E}
+=
+-\frac{\partial \boldsymbol{B}}{\partial t}
+\]
+.
+<div class="formula formula-display">\[\nabla \times \boldsymbol{E}
+=
+-\frac{\partial \boldsymbol{B}}{\partial t}\]</div>
+````````````````````````````````
+
+Double-backslash LaTeX delimiters are ordinary Markdown when only the MS formula
+option is enabled.
+
+```````````````````````````````` example
+Inline \\(x+y\\) and display \\[a+b\\].
+.
+<p>Inline \(x+y\) and display \[a+b\].</p>
+````````````````````````````````
+
+Code spans bind before the opt-in MS formula delimiters.
+
+```````````````````````````````` example
+Code `\(x\)` and formula \(x\).
+.
+<p>Code <code>\(x\)</code> and formula <span class="formula formula-inline">\(x\)</span>.</p>
+````````````````````````````````

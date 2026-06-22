@@ -64,10 +64,10 @@ void print_usage() {
          "                                  instead of align attributes.\n");
   printf("  --full-info-string              Include remainder of code block info\n"
          "                                  string in a separate attribute.\n");
-  printf("  --latex-math-delimiters         Enable LaTeX math \\\\(...\\\\) and\n"
-         "                                  \\\\[...\\\\] delimiters when math is enabled.\n");
-  printf("  --ms-math-delimiters            Enable MS math \\(...\\) and \\[...\\]\n"
-         "                                  delimiters when math is enabled.\n");
+  printf("  --latex-formula-delimiters         Enable LaTeX formula \\\\(...\\\\) and\n"
+         "                                  \\\\[...\\\\] delimiters when formula is enabled.\n");
+  printf("  --ms-formula-delimiters            Enable MS formula \\(...\\) and \\[...\\]\n"
+         "                                  delimiters when formula is enabled.\n");
   printf("  --ms-copilot-accordion          Enable MS Copilot accordion syntax.\n");
   printf("  --ms-copilot-annotation         Enable MS Copilot annotation syntax.\n");
   printf("  --ms-copilot-citation           Enable MS Copilot citation syntax.\n");
@@ -214,10 +214,10 @@ int main(int argc, char *argv[]) {
       goto success;
     } else if (strcmp(argv[i], "--full-info-string") == 0) {
       options |= CMARK_OPT_FULL_INFO_STRING;
-    } else if (strcmp(argv[i], "--latex-math-delimiters") == 0) {
-      options |= CMARK_OPT_LATEX_MATH_DELIMITERS;
-    } else if (strcmp(argv[i], "--ms-math-delimiters") == 0) {
-      options |= CMARK_OPT_MS_MATH_DELIMITERS;
+    } else if (strcmp(argv[i], "--latex-formula-delimiters") == 0) {
+      options |= CMARK_OPT_LATEX_FORMULA_DELIMITERS;
+    } else if (strcmp(argv[i], "--ms-formula-delimiters") == 0) {
+      options |= CMARK_OPT_MS_FORMULA_DELIMITERS;
     } else if (strcmp(argv[i], "--ms-copilot-accordion") == 0) {
       options |= CMARK_OPT_MS_COPILOT_ACCORDION;
     } else if (strcmp(argv[i], "--ms-copilot-annotation") == 0) {

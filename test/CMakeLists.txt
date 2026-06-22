@@ -73,40 +73,40 @@ IF (PYTHONINTERP_FOUND)
     "--extensions" "table strikethrough autolink tagfilter footnotes tasklist"
     )
 
-  add_test(math_github_compatibility_executable
+  add_test(formula_github_compatibility_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
-    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-math-github.txt"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-formula-github.txt"
     "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
-    "--extensions" "math"
+    "--extensions" "formula"
     )
 
-  add_test(math_mathjax_compatibility_executable
+  add_test(formula_latex_compatibility_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
-    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-math-mathjax.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-math-delimiters"
-    "--extensions" "math"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-formula-latex.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-formula-delimiters"
+    "--extensions" "formula"
     )
 
-  add_test(math_ms_math_compatibility_executable
+  add_test(formula_ms_compatibility_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
-    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-math-ms-math.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --ms-math-delimiters"
-    "--extensions" "math"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-formula-ms.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --ms-formula-delimiters"
+    "--extensions" "formula"
     )
 
-  add_test(math_conflicts_executable
+  add_test(formula_conflicts_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
-    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-math-conflicts.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-math-delimiters"
-    "--extensions" "math"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-formula-conflicts.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-formula-delimiters"
+    "--extensions" "formula"
     )
 
   add_test(ms_copilot_citation_extension_executable
@@ -120,7 +120,7 @@ IF (PYTHONINTERP_FOUND)
   add_test(inline_delimiter_stack_tests_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/inline_delimiter_stack_tests.py"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-math-delimiters --ms-copilot-annotation --ms-copilot-citation"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-formula-delimiters --ms-copilot-annotation --ms-copilot-citation"
     )
 
   add_test(ms_copilot_accordion_extension_executable

@@ -1,4 +1,4 @@
-#include "math.h"
+#include "formula.h"
 
 #include <assert.h>
 #include <string.h>
@@ -14,124 +14,125 @@
 
 #include "ext_scanners.h"
 
-cmark_node_type CMARK_NODE_MATH_INLINE;
-cmark_node_type CMARK_NODE_MATH_BLOCK;
+cmark_node_type CMARK_NODE_FORMULA_INLINE;
+cmark_node_type CMARK_NODE_FORMULA_BLOCK;
 
-#define MATH_DELIM_DOLLAR_INLINE 1
-#define MATH_DELIM_DOLLAR_DISPLAY 2
-#define MATH_DELIM_LATEX_BACKSLASH_INLINE 3
-#define MATH_DELIM_LATEX_BACKSLASH_DISPLAY 4
-#define MATH_DELIM_MS_BACKSLASH_INLINE 5
-#define MATH_DELIM_MS_BACKSLASH_DISPLAY 6
+#define FORMULA_DELIM_DOLLAR_INLINE 1
+#define FORMULA_DELIM_DOLLAR_DISPLAY 2
+#define FORMULA_DELIM_LATEX_BACKSLASH_INLINE 3
+#define FORMULA_DELIM_LATEX_BACKSLASH_DISPLAY 4
+#define FORMULA_DELIM_MS_BACKSLASH_INLINE 5
+#define FORMULA_DELIM_MS_BACKSLASH_DISPLAY 6
 
-#define MATH_BLOCK_DELIM_NONE 0
-#define MATH_BLOCK_DELIM_LATEX_BACKSLASH 1
-#define MATH_BLOCK_DELIM_DOLLAR 2
-#define MATH_BLOCK_DELIM_MS_BACKSLASH 3
+#define FORMULA_BLOCK_DELIM_NONE 0
+#define FORMULA_BLOCK_DELIM_LATEX_BACKSLASH 1
+#define FORMULA_BLOCK_DELIM_DOLLAR 2
+#define FORMULA_BLOCK_DELIM_MS_BACKSLASH 3
 
 typedef struct {
   cmark_chunk literal;
-  cmark_math_mode mode;
+  cmark_formula_mode mode;
   int block_delim;
   int closed;
-} node_math;
+} node_formula;
 
-static int is_math_node(cmark_node *node) {
+static int is_formula_node(cmark_node *node) {
   if (!node)
     return 0;
 
-  return node->type == CMARK_NODE_MATH_INLINE ||
-         node->type == CMARK_NODE_MATH_BLOCK;
+  return node->type == CMARK_NODE_FORMULA_INLINE ||
+         node->type == CMARK_NODE_FORMULA_BLOCK;
 }
 
-static node_math *get_math(cmark_node *node) {
-  if (!is_math_node(node))
+static node_formula *get_formula(cmark_node *node) {
+  if (!is_formula_node(node))
     return NULL;
 
-  return (node_math *)node->as.opaque;
+  return (node_formula *)node->as.opaque;
 }
 
-static int is_standalone_math_node(cmark_node *node) {
-  node_math *math = get_math(node);
+static int is_standalone_formula_node(cmark_node *node) {
+  node_formula *formula = get_formula(node);
 
-  if (!math)
+  if (!formula)
     return 0;
 
-  return math->mode == CMARK_MATH_MODE_STANDALONE;
+  return formula->mode == CMARK_FORMULA_MODE_STANDALONE;
 }
 
-const char *cmark_gfm_extensions_get_math_literal(cmark_node *node) {
-  node_math *math = get_math(node);
-  if (!math)
+const char *cmark_gfm_extensions_get_formula_literal(cmark_node *node) {
+  node_formula *formula = get_formula(node);
+  if (!formula)
     return NULL;
 
-  return cmark_chunk_to_cstr(cmark_node_mem(node), &math->literal);
+  return cmark_chunk_to_cstr(cmark_node_mem(node), &formula->literal);
 }
 
-int cmark_gfm_extensions_set_math_literal(cmark_node *node,
+int cmark_gfm_extensions_set_formula_literal(cmark_node *node,
                                           const char *literal) {
-  node_math *math = get_math(node);
-  if (!math)
+  node_formula *formula = get_formula(node);
+  if (!formula)
     return 0;
 
-  cmark_chunk_set_cstr(cmark_node_mem(node), &math->literal, literal);
+  cmark_chunk_set_cstr(cmark_node_mem(node), &formula->literal, literal);
   return 1;
 }
 
-cmark_math_mode cmark_gfm_extensions_get_math_mode(cmark_node *node) {
-  node_math *math = get_math(node);
-  if (!math)
-    return CMARK_MATH_MODE_NONE;
+cmark_formula_mode cmark_gfm_extensions_get_formula_mode(cmark_node *node) {
+  node_formula *formula = get_formula(node);
+  if (!formula)
+    return CMARK_FORMULA_MODE_NONE;
 
-  return math->mode;
+  return formula->mode;
 }
 
-int cmark_gfm_extensions_set_math_mode(cmark_node *node, cmark_math_mode mode) {
-  node_math *math = get_math(node);
-  if (!math)
+int cmark_gfm_extensions_set_formula_mode(cmark_node *node, cmark_formula_mode mode) {
+  node_formula *formula = get_formula(node);
+  if (!formula)
     return 0;
 
-  if (mode != CMARK_MATH_MODE_EMBEDDED && mode != CMARK_MATH_MODE_STANDALONE)
+  if (mode != CMARK_FORMULA_MODE_EMBEDDED && mode != CMARK_FORMULA_MODE_STANDALONE)
     return 0;
 
-  if (node->type == CMARK_NODE_MATH_BLOCK && mode != CMARK_MATH_MODE_STANDALONE)
+  if (node->type == CMARK_NODE_FORMULA_BLOCK &&
+      mode != CMARK_FORMULA_MODE_STANDALONE)
     return 0;
 
-  math->mode = mode;
+  formula->mode = mode;
   return 1;
 }
 
-static void math_opaque_alloc(cmark_syntax_extension *extension, cmark_mem *mem,
+static void formula_opaque_alloc(cmark_syntax_extension *extension, cmark_mem *mem,
                               cmark_node *node) {
-  if (is_math_node(node))
-    node->as.opaque = mem->calloc(1, sizeof(node_math));
+  if (is_formula_node(node))
+    node->as.opaque = mem->calloc(1, sizeof(node_formula));
 }
 
-static void math_opaque_free(cmark_syntax_extension *extension, cmark_mem *mem,
+static void formula_opaque_free(cmark_syntax_extension *extension, cmark_mem *mem,
                              cmark_node *node) {
-  node_math *math = (node_math *)node->as.opaque;
-  if (!math)
+  node_formula *formula = (node_formula *)node->as.opaque;
+  if (!formula)
     return;
 
-  cmark_chunk_free(mem, &math->literal);
-  mem->free(math);
+  cmark_chunk_free(mem, &formula->literal);
+  mem->free(formula);
 }
 
-static int set_math_literal_bytes(cmark_node *node, const unsigned char *data,
+static int set_formula_literal_bytes(cmark_node *node, const unsigned char *data,
                                   bufsize_t len) {
-  node_math *math = get_math(node);
-  if (!math)
+  node_formula *formula = get_formula(node);
+  if (!formula)
     return 0;
 
-  cmark_chunk_free(cmark_node_mem(node), &math->literal);
-  math->literal.data = (unsigned char *)data;
-  math->literal.len = len;
-  math->literal.alloc = 0;
-  cmark_chunk_to_cstr(cmark_node_mem(node), &math->literal);
+  cmark_chunk_free(cmark_node_mem(node), &formula->literal);
+  formula->literal.data = (unsigned char *)data;
+  formula->literal.len = len;
+  formula->literal.alloc = 0;
+  cmark_chunk_to_cstr(cmark_node_mem(node), &formula->literal);
   return 1;
 }
 
-static int set_math_literal_trimmed(cmark_node *node, const unsigned char *data,
+static int set_formula_literal_trimmed(cmark_node *node, const unsigned char *data,
                                     bufsize_t len) {
   while (len > 0 && cmark_isspace(data[0])) {
     data++;
@@ -141,20 +142,20 @@ static int set_math_literal_trimmed(cmark_node *node, const unsigned char *data,
   while (len > 0 && cmark_isspace(data[len - 1]))
     len--;
 
-  return set_math_literal_bytes(node, data, len);
+  return set_formula_literal_bytes(node, data, len);
 }
 
 static cmark_node *
-make_math_node(cmark_syntax_extension *extension, cmark_parser *parser,
-               cmark_node_type node_type, cmark_math_mode mode,
+make_formula_node(cmark_syntax_extension *extension, cmark_parser *parser,
+               cmark_node_type node_type, cmark_formula_mode mode,
                const unsigned char *literal, bufsize_t literal_len) {
   cmark_node *node =
       cmark_node_new_with_mem_and_ext(node_type, parser->mem, extension);
   if (!node)
     return NULL;
 
-  get_math(node)->mode = mode;
-  set_math_literal_bytes(node, literal, literal_len);
+  get_formula(node)->mode = mode;
+  set_formula_literal_bytes(node, literal, literal_len);
   return node;
 }
 
@@ -171,40 +172,40 @@ static int has_only_spaces_until_line_end(const unsigned char *data,
   return is_line_end(data, len, pos);
 }
 
-static int scan_math_block_open(const unsigned char *data, bufsize_t len,
-                                bufsize_t pos, int latex_math_delimiters,
-                                int ms_math_delimiters) {
-  if (latex_math_delimiters && pos + 3 <= len && data[pos] == '\\' &&
+static int scan_formula_block_open(const unsigned char *data, bufsize_t len,
+                                   bufsize_t pos, int latex_formula_delimiters,
+                                   int ms_formula_delimiters) {
+  if (latex_formula_delimiters && pos + 3 <= len && data[pos] == '\\' &&
       data[pos + 1] == '\\' && data[pos + 2] == '[' &&
       has_only_spaces_until_line_end(data, len, pos + 3))
-    return MATH_BLOCK_DELIM_LATEX_BACKSLASH;
+    return FORMULA_BLOCK_DELIM_LATEX_BACKSLASH;
 
-  if (ms_math_delimiters && pos + 2 <= len && data[pos] == '\\' &&
+  if (ms_formula_delimiters && pos + 2 <= len && data[pos] == '\\' &&
       data[pos + 1] == '[' &&
       has_only_spaces_until_line_end(data, len, pos + 2))
-    return MATH_BLOCK_DELIM_MS_BACKSLASH;
+    return FORMULA_BLOCK_DELIM_MS_BACKSLASH;
 
   if (pos + 2 <= len && data[pos] == '$' && data[pos + 1] == '$' &&
       has_only_spaces_until_line_end(data, len, pos + 2))
-    return MATH_BLOCK_DELIM_DOLLAR;
+    return FORMULA_BLOCK_DELIM_DOLLAR;
 
-  return MATH_BLOCK_DELIM_NONE;
+  return FORMULA_BLOCK_DELIM_NONE;
 }
 
-static int scan_math_block_close(const unsigned char *data, bufsize_t len,
-                                 bufsize_t pos, int block_delim) {
-  if (block_delim == MATH_BLOCK_DELIM_LATEX_BACKSLASH) {
+static int scan_formula_block_close(const unsigned char *data, bufsize_t len,
+                                    bufsize_t pos, int block_delim) {
+  if (block_delim == FORMULA_BLOCK_DELIM_LATEX_BACKSLASH) {
     return pos + 3 <= len && data[pos] == '\\' && data[pos + 1] == '\\' &&
            data[pos + 2] == ']' &&
            has_only_spaces_until_line_end(data, len, pos + 3);
   }
 
-  if (block_delim == MATH_BLOCK_DELIM_MS_BACKSLASH) {
+  if (block_delim == FORMULA_BLOCK_DELIM_MS_BACKSLASH) {
     return pos + 2 <= len && data[pos] == '\\' && data[pos + 1] == ']' &&
            has_only_spaces_until_line_end(data, len, pos + 2);
   }
 
-  if (block_delim == MATH_BLOCK_DELIM_DOLLAR) {
+  if (block_delim == FORMULA_BLOCK_DELIM_DOLLAR) {
     return pos + 2 <= len && data[pos] == '$' && data[pos + 1] == '$' &&
            has_only_spaces_until_line_end(data, len, pos + 2);
   }
@@ -212,56 +213,56 @@ static int scan_math_block_close(const unsigned char *data, bufsize_t len,
   return 0;
 }
 
-static cmark_node *try_opening_math_block(cmark_syntax_extension *extension,
+static cmark_node *try_opening_formula_block(cmark_syntax_extension *extension,
                                           int indented, cmark_parser *parser,
                                           cmark_node *parent_container,
                                           unsigned char *input, int len) {
   int block_delim;
   cmark_node *node;
-  node_math *math;
+  node_formula *formula;
   int first_nonspace = cmark_parser_get_first_nonspace(parser);
 
   if (indented)
     return NULL;
 
   block_delim =
-      scan_math_block_open(input, (bufsize_t)len, (bufsize_t)first_nonspace,
-                           parser->options & CMARK_OPT_LATEX_MATH_DELIMITERS,
-                           parser->options & CMARK_OPT_MS_MATH_DELIMITERS);
-  if (block_delim == MATH_BLOCK_DELIM_NONE)
+      scan_formula_block_open(input, (bufsize_t)len, (bufsize_t)first_nonspace,
+                              parser->options & CMARK_OPT_LATEX_FORMULA_DELIMITERS,
+                              parser->options & CMARK_OPT_MS_FORMULA_DELIMITERS);
+  if (block_delim == FORMULA_BLOCK_DELIM_NONE)
     return NULL;
 
-  node = cmark_parser_add_child(parser, parent_container, CMARK_NODE_MATH_BLOCK,
-                                first_nonspace + 1);
+  node = cmark_parser_add_child(parser, parent_container,
+                                CMARK_NODE_FORMULA_BLOCK, first_nonspace + 1);
   if (!node)
     return NULL;
 
   cmark_node_set_syntax_extension(node, extension);
-  node->as.opaque = parser->mem->calloc(1, sizeof(node_math));
+  node->as.opaque = parser->mem->calloc(1, sizeof(node_formula));
 
-  math = get_math(node);
-  if (!math)
+  formula = get_formula(node);
+  if (!formula)
     return NULL;
 
-  math->mode = CMARK_MATH_MODE_STANDALONE;
-  math->block_delim = block_delim;
+  formula->mode = CMARK_FORMULA_MODE_STANDALONE;
+  formula->block_delim = block_delim;
   cmark_parser_advance_offset(parser, (char *)input,
                               len - cmark_parser_get_offset(parser), false);
   return node;
 }
 
-static int math_block_matches(cmark_syntax_extension *extension,
+static int formula_block_matches(cmark_syntax_extension *extension,
                               cmark_parser *parser, unsigned char *input,
                               int len, cmark_node *container) {
-  node_math *math = get_math(container);
+  node_formula *formula = get_formula(container);
   int first_nonspace = cmark_parser_get_first_nonspace(parser);
 
-  if (!math || math->closed)
+  if (!formula || formula->closed)
     return 0;
 
-  if (scan_math_block_close(input, (bufsize_t)len, (bufsize_t)first_nonspace,
-                            math->block_delim)) {
-    math->closed = 1;
+  if (scan_formula_block_close(input, (bufsize_t)len, (bufsize_t)first_nonspace,
+                               formula->block_delim)) {
+    formula->closed = 1;
     cmark_parser_advance_offset(parser, (char *)input,
                                 len - cmark_parser_get_offset(parser), false);
   }
@@ -288,7 +289,7 @@ static cmark_node *make_delimiter_text(cmark_parser *parser,
   return node;
 }
 
-static cmark_node *match_math_delimiter(cmark_parser *parser,
+static cmark_node *match_formula_delimiter(cmark_parser *parser,
                                         cmark_inline_parser *inline_parser,
                                         unsigned char delim_char, bufsize_t len,
                                         int can_open, int can_close) {
@@ -322,12 +323,12 @@ static bufsize_t scan_backslash_close(const unsigned char *data, bufsize_t len,
   return 0;
 }
 
-static int latex_math_delimiters_enabled(cmark_parser *parser) {
-  return parser->options & CMARK_OPT_LATEX_MATH_DELIMITERS;
+static int latex_formula_delimiters_enabled(cmark_parser *parser) {
+  return parser->options & CMARK_OPT_LATEX_FORMULA_DELIMITERS;
 }
 
-static int ms_math_delimiters_enabled(cmark_parser *parser) {
-  return parser->options & CMARK_OPT_MS_MATH_DELIMITERS;
+static int ms_formula_delimiters_enabled(cmark_parser *parser) {
+  return parser->options & CMARK_OPT_MS_FORMULA_DELIMITERS;
 }
 
 static cmark_node *match(cmark_syntax_extension *extension,
@@ -341,74 +342,74 @@ static cmark_node *match(cmark_syntax_extension *extension,
   bufsize_t closer_len;
 
   if (character == '$') {
-    if (scan_math_dollar_display_open(chunk->data, len, offset))
-      return match_math_delimiter(parser, inline_parser,
-                                  MATH_DELIM_DOLLAR_DISPLAY, 2, 1, 1);
+    if (scan_formula_dollar_display_open(chunk->data, len, offset))
+      return match_formula_delimiter(parser, inline_parser,
+                                  FORMULA_DELIM_DOLLAR_DISPLAY, 2, 1, 1);
 
-    if (scan_math_dollar_inline_open(chunk->data, len, offset))
-      return match_math_delimiter(parser, inline_parser,
-                                  MATH_DELIM_DOLLAR_INLINE, 1, 1, 1);
+    if (scan_formula_dollar_inline_open(chunk->data, len, offset))
+      return match_formula_delimiter(parser, inline_parser,
+                                  FORMULA_DELIM_DOLLAR_INLINE, 1, 1, 1);
   } else if (character == '\\') {
-    if (latex_math_delimiters_enabled(parser)) {
+    if (latex_formula_delimiters_enabled(parser)) {
       opener_len =
-          scan_math_latex_backslash_display_open(chunk->data, len, offset);
+          scan_formula_latex_backslash_display_open(chunk->data, len, offset);
       if (opener_len)
-        return match_math_delimiter(parser, inline_parser,
-                                    MATH_DELIM_LATEX_BACKSLASH_DISPLAY,
+        return match_formula_delimiter(parser, inline_parser,
+                                    FORMULA_DELIM_LATEX_BACKSLASH_DISPLAY,
                                     opener_len, 1, 0);
 
       opener_len =
-          scan_math_latex_backslash_inline_open(chunk->data, len, offset);
+          scan_formula_latex_backslash_inline_open(chunk->data, len, offset);
       if (opener_len)
-        return match_math_delimiter(parser, inline_parser,
-                                    MATH_DELIM_LATEX_BACKSLASH_INLINE,
+        return match_formula_delimiter(parser, inline_parser,
+                                    FORMULA_DELIM_LATEX_BACKSLASH_INLINE,
                                     opener_len, 1, 0);
     }
 
-    if (ms_math_delimiters_enabled(parser)) {
+    if (ms_formula_delimiters_enabled(parser)) {
       opener_len =
-          scan_math_ms_backslash_display_open(chunk->data, len, offset);
+          scan_formula_ms_backslash_display_open(chunk->data, len, offset);
       if (opener_len)
-        return match_math_delimiter(parser, inline_parser,
-                                    MATH_DELIM_MS_BACKSLASH_DISPLAY, opener_len,
+        return match_formula_delimiter(parser, inline_parser,
+                                    FORMULA_DELIM_MS_BACKSLASH_DISPLAY, opener_len,
                                     1, 0);
 
-      opener_len = scan_math_ms_backslash_inline_open(chunk->data, len, offset);
+      opener_len = scan_formula_ms_backslash_inline_open(chunk->data, len, offset);
       if (opener_len)
-        return match_math_delimiter(parser, inline_parser,
-                                    MATH_DELIM_MS_BACKSLASH_INLINE, opener_len,
+        return match_formula_delimiter(parser, inline_parser,
+                                    FORMULA_DELIM_MS_BACKSLASH_INLINE, opener_len,
                                     1, 0);
     }
 
-    if (latex_math_delimiters_enabled(parser)) {
+    if (latex_formula_delimiters_enabled(parser)) {
       closer_len =
           scan_backslash_close(chunk->data, chunk->len, offset, ']', 2);
       if (closer_len)
-        return match_math_delimiter(parser, inline_parser,
-                                    MATH_DELIM_LATEX_BACKSLASH_DISPLAY,
+        return match_formula_delimiter(parser, inline_parser,
+                                    FORMULA_DELIM_LATEX_BACKSLASH_DISPLAY,
                                     closer_len, 0, 1);
 
       closer_len =
           scan_backslash_close(chunk->data, chunk->len, offset, ')', 2);
       if (closer_len)
-        return match_math_delimiter(parser, inline_parser,
-                                    MATH_DELIM_LATEX_BACKSLASH_INLINE,
+        return match_formula_delimiter(parser, inline_parser,
+                                    FORMULA_DELIM_LATEX_BACKSLASH_INLINE,
                                     closer_len, 0, 1);
     }
 
-    if (ms_math_delimiters_enabled(parser)) {
+    if (ms_formula_delimiters_enabled(parser)) {
       closer_len =
           scan_backslash_close(chunk->data, chunk->len, offset, ']', 1);
       if (closer_len)
-        return match_math_delimiter(parser, inline_parser,
-                                    MATH_DELIM_MS_BACKSLASH_DISPLAY, closer_len,
+        return match_formula_delimiter(parser, inline_parser,
+                                    FORMULA_DELIM_MS_BACKSLASH_DISPLAY, closer_len,
                                     0, 1);
 
       closer_len =
           scan_backslash_close(chunk->data, chunk->len, offset, ')', 1);
       if (closer_len)
-        return match_math_delimiter(parser, inline_parser,
-                                    MATH_DELIM_MS_BACKSLASH_INLINE, closer_len,
+        return match_formula_delimiter(parser, inline_parser,
+                                    FORMULA_DELIM_MS_BACKSLASH_INLINE, closer_len,
                                     0, 1);
     }
   }
@@ -416,24 +417,24 @@ static cmark_node *match(cmark_syntax_extension *extension,
   return NULL;
 }
 
-static cmark_math_mode mode_for_delim(unsigned char delim_char) {
-  return delim_char == MATH_DELIM_DOLLAR_DISPLAY ||
-                 delim_char == MATH_DELIM_LATEX_BACKSLASH_DISPLAY ||
-                 delim_char == MATH_DELIM_MS_BACKSLASH_DISPLAY
-             ? CMARK_MATH_MODE_STANDALONE
-             : CMARK_MATH_MODE_EMBEDDED;
+static cmark_formula_mode mode_for_delim(unsigned char delim_char) {
+  return delim_char == FORMULA_DELIM_DOLLAR_DISPLAY ||
+                 delim_char == FORMULA_DELIM_LATEX_BACKSLASH_DISPLAY ||
+                 delim_char == FORMULA_DELIM_MS_BACKSLASH_DISPLAY
+             ? CMARK_FORMULA_MODE_STANDALONE
+             : CMARK_FORMULA_MODE_EMBEDDED;
 }
 
 static int is_backslash_delim(unsigned char delim_char) {
-  return delim_char == MATH_DELIM_LATEX_BACKSLASH_INLINE ||
-         delim_char == MATH_DELIM_LATEX_BACKSLASH_DISPLAY ||
-         delim_char == MATH_DELIM_MS_BACKSLASH_INLINE ||
-         delim_char == MATH_DELIM_MS_BACKSLASH_DISPLAY;
+  return delim_char == FORMULA_DELIM_LATEX_BACKSLASH_INLINE ||
+         delim_char == FORMULA_DELIM_LATEX_BACKSLASH_DISPLAY ||
+         delim_char == FORMULA_DELIM_MS_BACKSLASH_INLINE ||
+         delim_char == FORMULA_DELIM_MS_BACKSLASH_DISPLAY;
 }
 
 static int slash_count_for_delim(unsigned char delim_char) {
-  return delim_char == MATH_DELIM_MS_BACKSLASH_INLINE ||
-                 delim_char == MATH_DELIM_MS_BACKSLASH_DISPLAY
+  return delim_char == FORMULA_DELIM_MS_BACKSLASH_INLINE ||
+                 delim_char == FORMULA_DELIM_MS_BACKSLASH_DISPLAY
              ? 1
              : 2;
 }
@@ -463,9 +464,9 @@ static void free_nodes_through(cmark_node *first, cmark_node *last) {
   }
 }
 
-static cmark_node *make_backslash_delimited_math(
+static cmark_node *make_backslash_delimited_formula(
     cmark_syntax_extension *extension, cmark_parser *parser,
-    cmark_math_mode mode, const unsigned char *data, bufsize_t body_start,
+    cmark_formula_mode mode, const unsigned char *data, bufsize_t body_start,
     bufsize_t body_end, int slash_count, unsigned char close_char) {
   cmark_strbuf literal;
   bufsize_t i = body_start;
@@ -485,13 +486,13 @@ static cmark_node *make_backslash_delimited_math(
     i++;
   }
 
-  node = make_math_node(extension, parser, CMARK_NODE_MATH_INLINE, mode,
+  node = make_formula_node(extension, parser, CMARK_NODE_FORMULA_INLINE, mode,
                         literal.ptr, literal.size);
   cmark_strbuf_free(&literal);
   return node;
 }
 
-static delimiter *insert_math(cmark_syntax_extension *extension,
+static delimiter *insert_formula(cmark_syntax_extension *extension,
                               cmark_parser *parser,
                               cmark_inline_parser *inline_parser,
                               delimiter *opener, delimiter *closer) {
@@ -499,10 +500,10 @@ static delimiter *insert_math(cmark_syntax_extension *extension,
   cmark_node *opener_node = opener->inl_text;
   cmark_node *closer_node = closer->inl_text;
   delimiter *res = closer->next;
-  cmark_node *math = NULL;
+  cmark_node *formula = NULL;
   bufsize_t body_start = opener->position;
   bufsize_t body_end = closer->position - closer->length;
-  cmark_math_mode mode = mode_for_delim((unsigned char)opener->delim_char);
+  cmark_formula_mode mode = mode_for_delim((unsigned char)opener->delim_char);
   const unsigned char *literal = chunk->data + body_start;
   bufsize_t literal_len = body_end - body_start;
 
@@ -513,7 +514,7 @@ static delimiter *insert_math(cmark_syntax_extension *extension,
       is_backslash_delim((unsigned char)opener->delim_char))
     goto done;
 
-  if (opener->delim_char == MATH_DELIM_DOLLAR_INLINE && literal_len > 0 &&
+  if (opener->delim_char == FORMULA_DELIM_DOLLAR_INLINE && literal_len > 0 &&
       literal[0] == '`') {
     if (literal_len < 2 || literal[literal_len - 1] != '`')
       goto done;
@@ -523,27 +524,27 @@ static delimiter *insert_math(cmark_syntax_extension *extension,
   }
 
   if (is_backslash_delim((unsigned char)opener->delim_char)) {
-    math = make_backslash_delimited_math(
+    formula = make_backslash_delimited_formula(
         extension, parser, mode, chunk->data, body_start, body_end,
         slash_count_for_delim((unsigned char)opener->delim_char),
-        mode == CMARK_MATH_MODE_STANDALONE ? ']' : ')');
+        mode == CMARK_FORMULA_MODE_STANDALONE ? ']' : ')');
   } else {
-    math = make_math_node(extension, parser, CMARK_NODE_MATH_INLINE, mode,
+    formula = make_formula_node(extension, parser, CMARK_NODE_FORMULA_INLINE, mode,
                           literal, literal_len);
   }
 
-  if (!math)
+  if (!formula)
     goto done;
 
-  math->start_line = opener_node->start_line;
-  math->end_line = closer_node->end_line;
-  math->start_column = opener_node->start_column;
-  math->end_column = closer_node->end_column;
+  formula->start_line = opener_node->start_line;
+  formula->end_line = closer_node->end_line;
+  formula->start_column = opener_node->start_column;
+  formula->end_column = closer_node->end_column;
 
-  if (cmark_node_insert_before(opener_node, math)) {
+  if (cmark_node_insert_before(opener_node, formula)) {
     free_nodes_through(opener_node, closer_node);
   } else {
-    cmark_node_free(math);
+    cmark_node_free(formula);
   }
 
 done:
@@ -567,24 +568,24 @@ static void escape_html(cmark_strbuf *html, cmark_chunk *literal) {
   houdini_escape_html0(html, literal->data, literal->len, 0);
 }
 
-static void render_html_math(cmark_strbuf *html, cmark_node *node) {
-  node_math *math = get_math(node);
-  int standalone = is_standalone_math_node(node);
+static void render_html_formula(cmark_strbuf *html, cmark_node *node) {
+  node_formula *formula = get_formula(node);
+  int standalone = is_standalone_formula_node(node);
   int use_dollars;
 
-  if (!math)
+  if (!formula)
     return;
 
   use_dollars =
-      literal_contains_backslash_close(&math->literal, standalone ? ']' : ')');
+      literal_contains_backslash_close(&formula->literal, standalone ? ']' : ')');
 
   if (use_dollars) {
     cmark_strbuf_puts(html, standalone ? "$$" : "$");
-    escape_html(html, &math->literal);
+    escape_html(html, &formula->literal);
     cmark_strbuf_puts(html, standalone ? "$$" : "$");
   } else {
     cmark_strbuf_puts(html, standalone ? "\\[" : "\\(");
-    escape_html(html, &math->literal);
+    escape_html(html, &formula->literal);
     cmark_strbuf_puts(html, standalone ? "\\]" : "\\)");
   }
 }
@@ -595,18 +596,18 @@ static void html_render(cmark_syntax_extension *extension,
   if (ev_type != CMARK_EVENT_ENTER)
     return;
 
-  if (node->type == CMARK_NODE_MATH_BLOCK) {
+  if (node->type == CMARK_NODE_FORMULA_BLOCK) {
     cmark_html_render_cr(renderer->html);
-    cmark_strbuf_puts(renderer->html, "<div class=\"math math-display\">");
-    render_html_math(renderer->html, node);
+    cmark_strbuf_puts(renderer->html, "<div class=\"formula formula-display\">");
+    render_html_formula(renderer->html, node);
     cmark_strbuf_puts(renderer->html, "</div>\n");
   } else {
-    cmark_strbuf_puts(renderer->html, "<span class=\"math ");
-    cmark_strbuf_puts(renderer->html, is_standalone_math_node(node)
-                                          ? "math-display"
-                                          : "math-inline");
+    cmark_strbuf_puts(renderer->html, "<span class=\"formula ");
+    cmark_strbuf_puts(renderer->html, is_standalone_formula_node(node)
+                                          ? "formula-display"
+                                          : "formula-inline");
     cmark_strbuf_puts(renderer->html, "\">");
-    render_html_math(renderer->html, node);
+    render_html_formula(renderer->html, node);
     cmark_strbuf_puts(renderer->html, "</span>");
   }
 }
@@ -614,31 +615,31 @@ static void html_render(cmark_syntax_extension *extension,
 static void commonmark_render(cmark_syntax_extension *extension,
                               cmark_renderer *renderer, cmark_node *node,
                               cmark_event_type ev_type, int options) {
-  node_math *math = get_math(node);
+  node_formula *formula = get_formula(node);
 
-  if (!math || ev_type != CMARK_EVENT_ENTER)
+  if (!formula || ev_type != CMARK_EVENT_ENTER)
     return;
 
-  if (node->type == CMARK_NODE_MATH_BLOCK) {
+  if (node->type == CMARK_NODE_FORMULA_BLOCK) {
     renderer->blankline(renderer);
     renderer->out(renderer, node, "$$", false, LITERAL);
     renderer->cr(renderer);
     renderer->out(renderer, node,
-                  cmark_chunk_to_cstr(renderer->mem, &math->literal), false,
+                  cmark_chunk_to_cstr(renderer->mem, &formula->literal), false,
                   LITERAL);
     renderer->cr(renderer);
     renderer->out(renderer, node, "$$", false, LITERAL);
     renderer->blankline(renderer);
-  } else if (is_standalone_math_node(node)) {
+  } else if (is_standalone_formula_node(node)) {
     renderer->out(renderer, node, "$$", false, LITERAL);
     renderer->out(renderer, node,
-                  cmark_chunk_to_cstr(renderer->mem, &math->literal), false,
+                  cmark_chunk_to_cstr(renderer->mem, &formula->literal), false,
                   LITERAL);
     renderer->out(renderer, node, "$$", false, LITERAL);
   } else {
     renderer->out(renderer, node, "$", false, LITERAL);
     renderer->out(renderer, node,
-                  cmark_chunk_to_cstr(renderer->mem, &math->literal), false,
+                  cmark_chunk_to_cstr(renderer->mem, &formula->literal), false,
                   LITERAL);
     renderer->out(renderer, node, "$", false, LITERAL);
   }
@@ -647,74 +648,74 @@ static void commonmark_render(cmark_syntax_extension *extension,
 static void plaintext_render(cmark_syntax_extension *extension,
                              cmark_renderer *renderer, cmark_node *node,
                              cmark_event_type ev_type, int options) {
-  node_math *math = get_math(node);
+  node_formula *formula = get_formula(node);
 
-  if (!math || ev_type != CMARK_EVENT_ENTER)
+  if (!formula || ev_type != CMARK_EVENT_ENTER)
     return;
 
   renderer->out(renderer, node,
-                cmark_chunk_to_cstr(renderer->mem, &math->literal), false,
+                cmark_chunk_to_cstr(renderer->mem, &formula->literal), false,
                 LITERAL);
 }
 
 static const char *get_type_string(cmark_syntax_extension *extension,
                                    cmark_node *node) {
-  if (node->type == CMARK_NODE_MATH_INLINE)
-    return "math_inline";
+  if (node->type == CMARK_NODE_FORMULA_INLINE)
+    return "formula_inline";
 
-  if (node->type == CMARK_NODE_MATH_BLOCK)
-    return "math_block";
+  if (node->type == CMARK_NODE_FORMULA_BLOCK)
+    return "formula_block";
 
   return "<unknown>";
 }
 
 static int can_contain(cmark_syntax_extension *extension, cmark_node *node,
                        cmark_node_type child_type) {
-  if (is_math_node(node))
+  if (is_formula_node(node))
     return 0;
 
   return 0;
 }
 
 static int accepts_lines(cmark_syntax_extension *extension, cmark_node *node) {
-  return node && node->type == CMARK_NODE_MATH_BLOCK;
+  return node && node->type == CMARK_NODE_FORMULA_BLOCK;
 }
 
-static int info_is_math(cmark_chunk *info) {
-  return info->len == 4 && memcmp(info->data, "math", 4) == 0;
+static int info_is_formula(cmark_chunk *info) {
+  return info->len == 7 && memcmp(info->data, "formula", 7) == 0;
 }
 
 static cmark_node *
-new_math_block_from_literal(cmark_syntax_extension *extension, cmark_mem *mem,
+new_formula_block_from_literal(cmark_syntax_extension *extension, cmark_mem *mem,
                             cmark_node *oldnode, const unsigned char *literal,
                             bufsize_t literal_len) {
-  cmark_node *math =
-      cmark_node_new_with_mem_and_ext(CMARK_NODE_MATH_BLOCK, mem, extension);
-  if (!math)
+  cmark_node *formula =
+      cmark_node_new_with_mem_and_ext(CMARK_NODE_FORMULA_BLOCK, mem, extension);
+  if (!formula)
     return NULL;
 
-  get_math(math)->mode = CMARK_MATH_MODE_STANDALONE;
-  math->start_line = oldnode->start_line;
-  math->start_column = oldnode->start_column;
-  math->end_line = oldnode->end_line;
-  math->end_column = oldnode->end_column;
-  set_math_literal_trimmed(math, literal, literal_len);
-  return math;
+  get_formula(formula)->mode = CMARK_FORMULA_MODE_STANDALONE;
+  formula->start_line = oldnode->start_line;
+  formula->start_column = oldnode->start_column;
+  formula->end_line = oldnode->end_line;
+  formula->end_column = oldnode->end_column;
+  set_formula_literal_trimmed(formula, literal, literal_len);
+  return formula;
 }
 
-static void replace_with_math_block(cmark_syntax_extension *extension,
+static void replace_with_formula_block(cmark_syntax_extension *extension,
                                     cmark_mem *mem, cmark_node *oldnode,
                                     const unsigned char *literal,
                                     bufsize_t literal_len) {
-  cmark_node *math = new_math_block_from_literal(extension, mem, oldnode,
+  cmark_node *formula = new_formula_block_from_literal(extension, mem, oldnode,
                                                  literal, literal_len);
-  if (!math)
+  if (!formula)
     return;
 
-  if (cmark_node_replace(oldnode, math))
+  if (cmark_node_replace(oldnode, formula))
     cmark_node_free(oldnode);
   else
-    cmark_node_free(math);
+    cmark_node_free(formula);
 }
 
 static void postprocess_node(cmark_syntax_extension *extension,
@@ -722,18 +723,18 @@ static void postprocess_node(cmark_syntax_extension *extension,
   cmark_node *child;
   cmark_node *next;
 
-  if (node->type == CMARK_NODE_MATH_BLOCK) {
-    node_math *math = get_math(node);
-    if (math && !math->literal.data) {
-      set_math_literal_trimmed(node, node->content.ptr, node->content.size);
+  if (node->type == CMARK_NODE_FORMULA_BLOCK) {
+    node_formula *formula = get_formula(node);
+    if (formula && !formula->literal.data) {
+      set_formula_literal_trimmed(node, node->content.ptr, node->content.size);
       cmark_strbuf_clear(&node->content);
     }
     return;
   }
 
   if (node->type == CMARK_NODE_CODE_BLOCK &&
-      info_is_math(&node->as.code.info)) {
-    replace_with_math_block(extension, parser->mem, node,
+      info_is_formula(&node->as.code.info)) {
+    replace_with_formula_block(extension, parser->mem, node,
                             node->as.code.literal.data,
                             node->as.code.literal.len);
     return;
@@ -741,12 +742,12 @@ static void postprocess_node(cmark_syntax_extension *extension,
 
   if (node->type == CMARK_NODE_PARAGRAPH && node->first_child &&
       node->first_child == node->last_child &&
-      node->first_child->type == CMARK_NODE_MATH_INLINE &&
-      is_standalone_math_node(node->first_child)) {
-    node_math *math = get_math(node->first_child);
-    if (math) {
-      replace_with_math_block(extension, parser->mem, node, math->literal.data,
-                              math->literal.len);
+      node->first_child->type == CMARK_NODE_FORMULA_INLINE &&
+      is_standalone_formula_node(node->first_child)) {
+    node_formula *formula = get_formula(node->first_child);
+    if (formula) {
+      replace_with_formula_block(extension, parser->mem, node, formula->literal.data,
+                              formula->literal.len);
       return;
     }
   }
@@ -765,17 +766,17 @@ static cmark_node *postprocess(cmark_syntax_extension *extension,
   return root;
 }
 
-cmark_syntax_extension *create_math_extension(void) {
-  cmark_syntax_extension *ext = cmark_syntax_extension_new("math");
+cmark_syntax_extension *create_formula_extension(void) {
+  cmark_syntax_extension *ext = cmark_syntax_extension_new("formula");
   cmark_llist *special_chars = NULL;
   cmark_mem *mem = cmark_get_default_mem_allocator();
 
-  CMARK_NODE_MATH_INLINE = cmark_syntax_extension_add_node(1);
-  CMARK_NODE_MATH_BLOCK = cmark_syntax_extension_add_node(0);
+  CMARK_NODE_FORMULA_INLINE = cmark_syntax_extension_add_node(1);
+  CMARK_NODE_FORMULA_BLOCK = cmark_syntax_extension_add_node(0);
 
   cmark_syntax_extension_set_match_inline_func(ext, match);
-  cmark_syntax_extension_set_match_block_func(ext, math_block_matches);
-  cmark_syntax_extension_set_open_block_func(ext, try_opening_math_block);
+  cmark_syntax_extension_set_match_block_func(ext, formula_block_matches);
+  cmark_syntax_extension_set_open_block_func(ext, try_opening_formula_block);
   cmark_syntax_extension_set_postprocess_func(ext, postprocess);
   cmark_syntax_extension_set_get_type_string_func(ext, get_type_string);
   cmark_syntax_extension_set_can_contain_func(ext, can_contain);
@@ -783,23 +784,23 @@ cmark_syntax_extension *create_math_extension(void) {
   cmark_syntax_extension_set_commonmark_render_func(ext, commonmark_render);
   cmark_syntax_extension_set_plaintext_render_func(ext, plaintext_render);
   cmark_syntax_extension_set_html_render_func(ext, html_render);
-  cmark_syntax_extension_set_opaque_alloc_func(ext, math_opaque_alloc);
-  cmark_syntax_extension_set_opaque_free_func(ext, math_opaque_free);
-  cmark_syntax_extension_set_inline_from_delim_func(ext, insert_math);
+  cmark_syntax_extension_set_opaque_alloc_func(ext, formula_opaque_alloc);
+  cmark_syntax_extension_set_opaque_free_func(ext, formula_opaque_free);
+  cmark_syntax_extension_set_inline_from_delim_func(ext, insert_formula);
 
   special_chars = cmark_llist_append(mem, special_chars, (void *)'$');
   special_chars =
-      cmark_llist_append(mem, special_chars, (void *)MATH_DELIM_DOLLAR_INLINE);
+      cmark_llist_append(mem, special_chars, (void *)FORMULA_DELIM_DOLLAR_INLINE);
   special_chars =
-      cmark_llist_append(mem, special_chars, (void *)MATH_DELIM_DOLLAR_DISPLAY);
+      cmark_llist_append(mem, special_chars, (void *)FORMULA_DELIM_DOLLAR_DISPLAY);
   special_chars = cmark_llist_append(mem, special_chars,
-                                     (void *)MATH_DELIM_LATEX_BACKSLASH_INLINE);
+                                     (void *)FORMULA_DELIM_LATEX_BACKSLASH_INLINE);
   special_chars = cmark_llist_append(
-      mem, special_chars, (void *)MATH_DELIM_LATEX_BACKSLASH_DISPLAY);
+      mem, special_chars, (void *)FORMULA_DELIM_LATEX_BACKSLASH_DISPLAY);
   special_chars = cmark_llist_append(mem, special_chars,
-                                     (void *)MATH_DELIM_MS_BACKSLASH_INLINE);
+                                     (void *)FORMULA_DELIM_MS_BACKSLASH_INLINE);
   special_chars = cmark_llist_append(mem, special_chars,
-                                     (void *)MATH_DELIM_MS_BACKSLASH_DISPLAY);
+                                     (void *)FORMULA_DELIM_MS_BACKSLASH_DISPLAY);
   cmark_syntax_extension_set_special_inline_chars(ext, special_chars);
   cmark_syntax_extension_set_emphasis(ext, 1);
 

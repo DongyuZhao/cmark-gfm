@@ -40,25 +40,25 @@ def main():
     parser.add_argument("--program", required=True)
     args = parser.parse_args()
 
-    long_math = "$" + ("x" * LONG_BODY) + "$"
-    long_math_result = run_cmark(args.program, "math", long_math)
-    require(long_math_result.returncode == 0, long_math_result.stderr)
+    long_formula = "$" + ("x" * LONG_BODY) + "$"
+    long_formula_result = run_cmark(args.program, "formula", long_formula)
+    require(long_formula_result.returncode == 0, long_formula_result.stderr)
     require(
-        '<span class="math math-inline">' in long_math_result.stdout,
-        "expected long dollar math to parse",
+        '<span class="formula formula-inline">' in long_formula_result.stdout,
+        "expected long dollar formula to parse",
     )
 
-    long_backslash_math = "\\\\(" + ("x" * LONG_BODY) + "\\\\)"
-    long_backslash_math_result = run_cmark(
-        args.program, "math", long_backslash_math
+    long_backslash_formula = "\\\\(" + ("x" * LONG_BODY) + "\\\\)"
+    long_backslash_formula_result = run_cmark(
+        args.program, "formula", long_backslash_formula
     )
     require(
-        long_backslash_math_result.returncode == 0,
-        long_backslash_math_result.stderr,
+        long_backslash_formula_result.returncode == 0,
+        long_backslash_formula_result.stderr,
     )
     require(
-        '<span class="math math-inline">' in long_backslash_math_result.stdout,
-        "expected long backslash math to parse",
+        '<span class="formula formula-inline">' in long_backslash_formula_result.stdout,
+        "expected long backslash formula to parse",
     )
 
     long_citation = "【" + ("x" * LONG_BODY) + "】"
@@ -71,13 +71,13 @@ def main():
         "expected long citation to parse",
     )
 
-    math_pathological = " ".join(["$`x"] * 20000)
-    math_pathological_result = run_cmark(args.program, "math", math_pathological)
-    require(math_pathological_result.returncode == 0, math_pathological_result.stderr)
+    formula_pathological = " ".join(["$`x"] * 20000)
+    formula_pathological_result = run_cmark(args.program, "formula", formula_pathological)
+    require(formula_pathological_result.returncode == 0, formula_pathological_result.stderr)
 
     backslash_pathological = " ".join(["\\\\(x"] * 20000)
     backslash_pathological_result = run_cmark(
-        args.program, "math", backslash_pathological
+        args.program, "formula", backslash_pathological
     )
     require(
         backslash_pathological_result.returncode == 0,

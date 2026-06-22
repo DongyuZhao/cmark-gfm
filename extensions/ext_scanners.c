@@ -623,7 +623,7 @@ bufsize_t _scan_tasklist(const unsigned char *p) {
   }
 }
 
-bufsize_t _scan_math_dollar_inline_open(const unsigned char *p) {
+bufsize_t _scan_formula_dollar_inline_open(const unsigned char *p) {
   const unsigned char *marker = NULL;
   const unsigned char *start = p;
 
@@ -644,7 +644,7 @@ bufsize_t _scan_math_dollar_inline_open(const unsigned char *p) {
   }
 }
 
-bufsize_t _scan_math_dollar_backtick_open(const unsigned char *p) {
+bufsize_t _scan_formula_dollar_backtick_open(const unsigned char *p) {
   const unsigned char *marker = NULL;
   const unsigned char *start = p;
 
@@ -666,7 +666,7 @@ bufsize_t _scan_math_dollar_backtick_open(const unsigned char *p) {
   }
 }
 
-bufsize_t _scan_math_dollar_display_open(const unsigned char *p) {
+bufsize_t _scan_formula_dollar_display_open(const unsigned char *p) {
   const unsigned char *marker = NULL;
   const unsigned char *start = p;
 
@@ -688,7 +688,7 @@ bufsize_t _scan_math_dollar_display_open(const unsigned char *p) {
   }
 }
 
-bufsize_t _scan_math_latex_backslash_inline_open(const unsigned char *p) {
+bufsize_t _scan_formula_latex_backslash_inline_open(const unsigned char *p) {
   const unsigned char *marker = NULL;
   const unsigned char *start = p;
 
@@ -716,7 +716,7 @@ bufsize_t _scan_math_latex_backslash_inline_open(const unsigned char *p) {
   }
 }
 
-bufsize_t _scan_math_latex_backslash_display_open(const unsigned char *p) {
+bufsize_t _scan_formula_latex_backslash_display_open(const unsigned char *p) {
   const unsigned char *marker = NULL;
   const unsigned char *start = p;
 
@@ -744,7 +744,7 @@ bufsize_t _scan_math_latex_backslash_display_open(const unsigned char *p) {
   }
 }
 
-bufsize_t _scan_math_ms_backslash_inline_open(const unsigned char *p) {
+bufsize_t _scan_formula_ms_backslash_inline_open(const unsigned char *p) {
   const unsigned char *marker = NULL;
   const unsigned char *start = p;
 
@@ -766,7 +766,7 @@ bufsize_t _scan_math_ms_backslash_inline_open(const unsigned char *p) {
   }
 }
 
-bufsize_t _scan_math_ms_backslash_display_open(const unsigned char *p) {
+bufsize_t _scan_formula_ms_backslash_display_open(const unsigned char *p) {
   const unsigned char *marker = NULL;
   const unsigned char *start = p;
 
