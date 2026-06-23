@@ -8,6 +8,7 @@
 #include "tagfilter.h"
 #include "tasklist.h"
 #include "formula.h"
+#include "directive.h"
 #include "registry.h"
 #include "plugin.h"
 
@@ -25,6 +26,8 @@ static int core_extensions_registration(cmark_plugin *plugin) {
                                          create_ms_copilot_citation_extension());
   cmark_plugin_register_syntax_extension(plugin,
                                          create_ms_copilot_annotation_extension());
+  cmark_plugin_register_syntax_extension(plugin,
+                                         create_directive_extension());
   return 1;
 }
 

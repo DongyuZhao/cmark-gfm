@@ -789,6 +789,7 @@ cmark_syntax_extension *create_formula_extension(void) {
   cmark_syntax_extension_set_inline_from_delim_func(ext, insert_formula);
 
   special_chars = cmark_llist_append(mem, special_chars, (void *)'$');
+  special_chars = cmark_llist_append(mem, special_chars, (void *)'\\');
   special_chars =
       cmark_llist_append(mem, special_chars, (void *)FORMULA_DELIM_DOLLAR_INLINE);
   special_chars =

@@ -71,6 +71,7 @@ void print_usage() {
   printf("  --ms-copilot-accordion          Enable MS Copilot accordion syntax.\n");
   printf("  --ms-copilot-annotation         Enable MS Copilot annotation syntax.\n");
   printf("  --ms-copilot-citation           Enable MS Copilot citation syntax.\n");
+  printf("  --directive                    Enable directive syntax.\n");
   printf("  --help, -h       Print usage information\n");
   printf("  --version        Print version\n");
 }
@@ -112,6 +113,9 @@ static bool attach_option_extensions(cmark_parser *parser, int options) {
     return false;
   if ((options & CMARK_OPT_MS_COPILOT_CITATION) &&
       !attach_syntax_extension(parser, "ms_copilot_citation"))
+    return false;
+  if ((options & CMARK_OPT_DIRECTIVE) &&
+      !attach_syntax_extension(parser, "directive"))
     return false;
 
   return true;
@@ -224,6 +228,8 @@ int main(int argc, char *argv[]) {
       options |= CMARK_OPT_MS_COPILOT_ANNOTATION;
     } else if (strcmp(argv[i], "--ms-copilot-citation") == 0) {
       options |= CMARK_OPT_MS_COPILOT_CITATION;
+    } else if (strcmp(argv[i], "--directive") == 0) {
+      options |= CMARK_OPT_DIRECTIVE;
     } else if (strcmp(argv[i], "--table-prefer-style-attributes") == 0) {
       options |= CMARK_OPT_TABLE_PREFER_STYLE_ATTRIBUTES;
     } else if (strcmp(argv[i], "--strikethrough-double-tilde") == 0) {

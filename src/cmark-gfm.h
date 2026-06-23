@@ -788,6 +788,10 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_MS_COPILOT_CITATION (1 << 22)
 
+/** Enable directive syntax.
+ */
+#define CMARK_OPT_DIRECTIVE (1 << 23)
+
 /**
  * ## Version information
  */

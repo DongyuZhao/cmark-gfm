@@ -47,6 +47,7 @@ let package = Package(
                 "extensions/autolink.c",
                 "extensions/tagfilter.c",
                 "extensions/formula.c",
+                "extensions/directive.c",
                 "extensions/ext_scanners.c",
                 "extensions/tasklist.c",
             ],

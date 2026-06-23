@@ -349,6 +349,7 @@ cmark_syntax_extension *create_ms_copilot_citation_extension(void) {
   cmark_syntax_extension_set_opaque_free_func(
       ext, ms_copilot_citation_opaque_free);
 
+  special_chars = cmark_llist_append(mem, special_chars, (void *)'!');
   special_chars = cmark_llist_append(mem, special_chars,
                                      (void *)(size_t)
                                          MS_COPILOT_CITATION_OPEN[0]);

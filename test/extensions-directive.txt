@@ -1,0 +1,129 @@
+---
+title: Directive extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-06-22'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## Directives
+
+Text directives use one colon. The label parses inline Markdown and attributes
+are rendered on the generated wrapper.
+
+```````````````````````````````` example
+Use :cite[Smith *et al.*]{#smith .paper data-kind=ref} here.
+.
+<p>Use <span data-directive="cite" id="smith" class="paper" data-kind="ref">Smith <em>et al.</em></span> here.</p>
+````````````````````````````````
+
+Text directive labels can contain links.
+
+```````````````````````````````` example
+:note[See [docs](https://example.com).]
+.
+<p><span data-directive="note">See <a href="https://example.com">docs</a>.</span></p>
+````````````````````````````````
+
+Text directive labels can contain bracketed text that is not a link.
+
+```````````````````````````````` example
+:note[See [plain] text.]
+.
+<p><span data-directive="note">See [plain] text.</span></p>
+````````````````````````````````
+
+Text directives can appear inside link text.
+
+```````````````````````````````` example
+[Go :badge[beta]](/roadmap)
+.
+<p><a href="/roadmap">Go <span data-directive="badge">beta</span></a></p>
+````````````````````````````````
+
+A text directive with only a name is not recognized when it is followed by a
+colon, so gemoji-compatible text remains text.
+
+```````````````````````````````` example
+:red:
+.
+<p>:red:</p>
+````````````````````````````````
+
+An empty label disambiguates a text directive before a following colon.
+
+```````````````````````````````` example
+:red[]:
+.
+<p><span data-directive="red"></span>:</p>
+````````````````````````````````
+
+Directive names can start with punctuation characters allowed by the syntax,
+but they cannot end with a hyphen or underscore.
+
+```````````````````````````````` example
+:a-[]
+:-a[]
+:_a[]
+.
+<p>:a-[]
+<span data-directive="-a"></span>
+<span data-directive="_a"></span></p>
+````````````````````````````````
+
+Leaf directives use two colons on their own line. Classes from shortcuts and
+attributes are combined.
+
+```````````````````````````````` example
+::youtube[Video of a *cat*]{vid=01ab2cd3efg .embed class=featured}
+.
+<div data-directive="youtube" class="embed featured" vid="01ab2cd3efg">Video of a <em>cat</em></div>
+````````````````````````````````
+
+Container directives use three or more colons on their own line. A closing
+fence must have at least the opening fence length.
+
+```````````````````````````````` example
+::::spoiler{#outer .red class=green .blue}
+He dies.
+
+:::spoiler
+She is born.
+:::
+::::
+.
+<div data-directive="spoiler" id="outer" class="red green blue">
+<p>He dies.</p>
+<div data-directive="spoiler">
+<p>She is born.</p>
+</div>
+</div>
+````````````````````````````````
+
+If no closing fence is found, the container runs to the end of its parent.
+
+```````````````````````````````` example
+::::spoiler
+These three are not enough to close
+:::
+So this line is also part of the container.
+.
+<div data-directive="spoiler">
+<p>These three are not enough to close
+:::
+So this line is also part of the container.</p>
+</div>
+````````````````````````````````
+
+An indented colon run inside a container is content, not a closing fence.
+
+```````````````````````````````` example
+:::spoiler
+    :::
+:::
+.
+<div data-directive="spoiler">
+<pre><code>:::
+</code></pre>
+</div>
+````````````````````````````````

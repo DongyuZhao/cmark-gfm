@@ -27,7 +27,7 @@ CLANG_CHECK?=clang-check
 CLANG_FORMAT=clang-format -style llvm -sort-includes=0 -i
 AFL_PATH?=/usr/local/bin
 
-.PHONY: all cmake_build leakcheck clean fuzztest test debug ubsan asan asan-test mingw archive newbench bench format update-spec afl clang-check docker libFuzzer
+.PHONY: all cmake_build leakcheck clean fuzztest test debug ubsan asan asan-test mingw archive newbench bench directive-bench format update-spec afl clang-check docker libFuzzer
 
 all: cmake_build man/man3/cmark-gfm.3
 
@@ -214,6 +214,16 @@ newbench:
 		done \
 	  } 2>&1  | grep 'real' | awk '{print $$2}' | \
 	    python3 'bench/stats.py'; done
+
+directive-bench:
+	printf "%26s  " directive.md ; \
+	{ for x in `seq 1 $(NUMRUNS)` ; do \
+		/usr/bin/env time -p $(PROG) --directive </dev/null >/dev/null ; \
+		for x in `seq 1 200` ; do cat $(BENCHDIR)/samples/directive.md ; done | \
+		  /usr/bin/env time -p $(PROG) --directive > /dev/null; \
+		done \
+	} 2>&1  | grep 'real' | awk '{print $$2}' | \
+	  python3 'bench/stats.py'
 
 format:
 	$(CLANG_FORMAT) src/*.c src/*.h api_test/*.c api_test/*.h

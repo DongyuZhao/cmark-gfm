@@ -10,6 +10,7 @@ set(LIBRARY_SOURCES
     autolink.c
     tagfilter.c
     formula.c
+    directive.c
     ext_scanners.c
     ext_scanners.re
     ext_scanners.h

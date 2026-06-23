@@ -651,19 +651,28 @@ static cmark_node *handle_period(subject *subj, bool smart) {
   }
 }
 
+static int extension_has_special_char(cmark_syntax_extension *ext,
+                                      unsigned char c) {
+  cmark_llist *tmp_char;
+
+  for (tmp_char = ext->special_inline_chars; tmp_char;
+       tmp_char = tmp_char->next) {
+    unsigned char tmp_c = (unsigned char)(size_t)tmp_char->data;
+
+    if (tmp_c == c)
+      return 1;
+  }
+
+  return 0;
+}
+
 static cmark_syntax_extension *get_extension_for_special_char(cmark_parser *parser, unsigned char c) {
   cmark_llist *tmp_ext;
 
   for (tmp_ext = parser->inline_syntax_extensions; tmp_ext; tmp_ext=tmp_ext->next) {
     cmark_syntax_extension *ext = (cmark_syntax_extension *) tmp_ext->data;
-    cmark_llist *tmp_char;
-    for (tmp_char = ext->special_inline_chars; tmp_char; tmp_char=tmp_char->next) {
-      unsigned char tmp_c = (unsigned char)(size_t)tmp_char->data;
-
-      if (tmp_c == c) {
-        return ext;
-      }
-    }
+    if (extension_has_special_char(ext, c))
+      return ext;
   }
 
   return NULL;
@@ -1417,13 +1426,38 @@ static bufsize_t subject_find_special_char(subject *subj, int options) {
   return subj->input.len;
 }
 
+static int is_core_special_character(unsigned char c) {
+  switch (c) {
+  case '\r':
+  case '\n':
+  case '\\':
+  case '`':
+  case '&':
+  case '_':
+  case '*':
+  case '[':
+  case ']':
+  case '<':
+  case '!':
+    return 1;
+  default:
+    return 0;
+  }
+}
+
 void cmark_inlines_add_special_character(unsigned char c, bool emphasis) {
+  if (is_core_special_character(c))
+    return;
+
   SPECIAL_CHARS[c] = 1;
   if (emphasis)
     SKIP_CHARS[c] = 1;
 }
 
 void cmark_inlines_remove_special_character(unsigned char c, bool emphasis) {
+  if (is_core_special_character(c))
+    return;
+
   SPECIAL_CHARS[c] = 0;
   if (emphasis)
     SKIP_CHARS[c] = 0;
@@ -1438,6 +1472,10 @@ static cmark_node *try_extensions(cmark_parser *parser,
 
   for (tmp = parser->inline_syntax_extensions; tmp; tmp = tmp->next) {
     cmark_syntax_extension *ext = (cmark_syntax_extension *) tmp->data;
+
+    if (!extension_has_special_char(ext, c))
+      continue;
+
     res = ext->match_inline(ext, parser, parent, c, subj);
 
     if (res)
@@ -1445,6 +1483,44 @@ static cmark_node *try_extensions(cmark_parser *parser,
   }
 
   return res;
+}
+
+static delimiter *find_extension_opener_for_special_char(cmark_parser *parser,
+                                                         subject *subj,
+                                                         unsigned char c) {
+  delimiter *delim = subj->last_delim;
+  int closer_count[256];
+
+  memset(closer_count, 0, sizeof(closer_count));
+
+  while (delim) {
+    cmark_syntax_extension *extension =
+        get_extension_for_special_char(parser, delim->delim_char);
+
+    if (extension && extension_has_special_char(extension, c)) {
+      if (delim->can_close) {
+        closer_count[delim->delim_char]++;
+      } else if (delim->can_open) {
+        if (closer_count[delim->delim_char] > 0)
+          closer_count[delim->delim_char]--;
+        else
+          return delim;
+      }
+    }
+
+    delim = delim->previous;
+  }
+
+  return NULL;
+}
+
+static int bracket_takes_close_bracket(cmark_parser *parser, subject *subj) {
+  delimiter *extension_opener =
+      find_extension_opener_for_special_char(parser, subj, ']');
+
+  return subj->last_bracket &&
+         (!extension_opener ||
+          subj->last_bracket->position > extension_opener->position);
 }
 
 // Parse an inline, advancing subject, and add it as a child of parent.
@@ -1495,7 +1571,13 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
     push_bracket(subj, false, new_inl);
     break;
   case ']':
-    new_inl = handle_close_bracket(parser, subj);
+    if (bracket_takes_close_bracket(parser, subj)) {
+      new_inl = handle_close_bracket(parser, subj);
+      break;
+    }
+    new_inl = try_extensions(parser, parent, c, subj);
+    if (new_inl == NULL)
+      new_inl = handle_close_bracket(parser, subj);
     break;
   case '!':
     new_inl = try_extensions(parser, parent, c, subj);

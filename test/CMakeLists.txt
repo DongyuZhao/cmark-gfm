@@ -154,6 +154,28 @@ IF (PYTHONINTERP_FOUND)
     "--extensions" "ms_copilot_accordion ms_copilot_annotation ms_copilot_citation"
     )
 
+  add_test(directive_extension_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-directive.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --directive"
+    )
+
+  add_test(directive_option_gates_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
+    "--no-normalize"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-directive-option-gates.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
+    "--extensions" "directive"
+    )
+
+  add_test(directive_pathological_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/directive_pathological_tests.py"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --directive"
+    )
+
   add_test(ms_copilot_accordion_depth_limit_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/ms_copilot_accordion_depth_limit.py"

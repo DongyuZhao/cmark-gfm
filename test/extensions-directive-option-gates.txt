@@ -1,0 +1,36 @@
+---
+title: Directive option gate extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-06-22'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## Directive option gates
+
+These examples attach the directive extension without enabling its
+parser option. The extension syntax remains ordinary Markdown.
+
+```````````````````````````````` example
+Use :cite[smith04] here.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Use :cite[smith04] here.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+```````````````````````````````` example
+::youtube[Video]{vid=01ab2cd3efg}
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">::youtube[Video]{vid=01ab2cd3efg}</text>
+  </paragraph>
+</document>
+````````````````````````````````

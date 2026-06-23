@@ -74,6 +74,33 @@ CMARK_GFM_EXPORT
 int cmark_gfm_extensions_set_formula_mode(cmark_node *node,
                                        cmark_formula_mode mode);
 
+/** Returns the directive name for directive extension nodes, or NULL on
+ * error.
+ */
+CMARK_GFM_EXPORT
+const char *cmark_gfm_extensions_get_directive_name(cmark_node *node);
+
+/** Sets the directive name for directive extension nodes, returning 1
+ * on success and 0 on error.
+ */
+CMARK_GFM_EXPORT
+int cmark_gfm_extensions_set_directive_name(cmark_node *node,
+                                            const char *name);
+
+/** Returns normalized HTML attributes for directive extension nodes, or
+ * NULL on error.
+ */
+CMARK_GFM_EXPORT
+const char *
+cmark_gfm_extensions_get_directive_attributes(cmark_node *node);
+
+/** Sets normalized HTML attributes for directive extension nodes,
+ * returning 1 on success and 0 on error.
+ */
+CMARK_GFM_EXPORT
+int cmark_gfm_extensions_set_directive_attributes(cmark_node *node,
+                                                  const char *attributes);
+
 /** Returns the citation ref payload for MS Copilot citation extension nodes, or NULL on error.
  */
 CMARK_GFM_EXPORT

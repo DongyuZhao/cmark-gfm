@@ -25,6 +25,7 @@ static void test_md_to_html(test_batch_runner *runner, const char *markdown,
                             const char *expected_html, const char *msg);
 
 static cmark_node *parse_with_formula_extension(const char *markdown);
+static cmark_node *parse_with_directive_extension(const char *markdown);
 
 static void test_content(test_batch_runner *runner, cmark_node_type type,
                          unsigned int *allowed_content);
@@ -267,6 +268,24 @@ static cmark_node *parse_with_formula_extension(const char *markdown) {
   return parse_with_formula_extension_options(markdown, CMARK_OPT_DEFAULT);
 }
 
+static cmark_node *parse_with_directive_extension(const char *markdown) {
+  cmark_gfm_core_extensions_ensure_registered();
+
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT |
+                                          CMARK_OPT_DIRECTIVE);
+  cmark_syntax_extension *directive = cmark_find_syntax_extension("directive");
+
+  if (directive) {
+    cmark_parser_attach_syntax_extension(parser, directive);
+  }
+
+  cmark_parser_feed(parser, markdown, strlen(markdown));
+  cmark_node *doc = cmark_parser_finish(parser);
+  cmark_parser_free(parser);
+
+  return doc;
+}
+
 static void formula_extension_accessors(test_batch_runner *runner) {
   cmark_node *doc = parse_with_formula_extension("Inline $x+y$ end.\n");
   cmark_node *paragraph = cmark_node_first_child(doc);
@@ -363,6 +382,73 @@ static void formula_extension_accessors(test_batch_runner *runner) {
          "formula fence becomes standalone block");
   STR_EQ(runner, cmark_gfm_extensions_get_formula_literal(formula), "x+y",
          "formula fence literal is trimmed");
+  cmark_node_free(doc);
+}
+
+static void directive_extension_accessors(test_batch_runner *runner) {
+  cmark_node *doc = parse_with_directive_extension(":-a[]{#old .small}\n");
+  cmark_node *paragraph = cmark_node_first_child(doc);
+  cmark_node *directive = cmark_node_first_child(paragraph);
+
+  STR_EQ(runner, cmark_node_get_type_string(directive), "directive",
+         "directive inline type string");
+  STR_EQ(runner, cmark_gfm_extensions_get_directive_name(directive), "-a",
+         "directive name getter");
+  STR_EQ(runner, cmark_gfm_extensions_get_directive_attributes(directive),
+         "id=\"old\" class=\"small\"", "directive attributes getter");
+  INT_EQ(runner, cmark_gfm_extensions_set_directive_name(directive,
+                                                        "next_name-2"),
+         1, "set directive name succeeds");
+  STR_EQ(runner, cmark_gfm_extensions_get_directive_name(directive),
+         "next_name-2", "directive name setter updates payload");
+  INT_EQ(runner, cmark_gfm_extensions_set_directive_name(directive, "bad-"),
+         0, "set directive name rejects trailing hyphen");
+  INT_EQ(runner, cmark_gfm_extensions_set_directive_name(directive, "bad_"),
+         0, "set directive name rejects trailing underscore");
+  INT_EQ(runner, cmark_gfm_extensions_set_directive_name(directive, ""), 0,
+         "set directive name rejects empty name");
+  STR_EQ(runner, cmark_gfm_extensions_get_directive_name(directive),
+         "next_name-2", "rejected directive name leaves payload unchanged");
+  INT_EQ(runner, cmark_gfm_extensions_set_directive_attributes(
+                     directive, "data-x=\"1\""),
+         1, "set directive attributes succeeds");
+  STR_EQ(runner, cmark_gfm_extensions_get_directive_attributes(directive),
+         "data-x=\"1\"", "directive attributes setter updates payload");
+  INT_EQ(runner, cmark_gfm_extensions_set_directive_name(paragraph, "ok"), 0,
+         "set directive name rejects non-directive nodes");
+  INT_EQ(runner,
+         cmark_gfm_extensions_set_directive_attributes(paragraph, "data-x=1"),
+         0, "set directive attributes rejects non-directive nodes");
+  OK(runner, cmark_gfm_extensions_get_directive_name(paragraph) == NULL,
+     "get directive name rejects non-directive nodes");
+  OK(runner, cmark_gfm_extensions_get_directive_attributes(paragraph) == NULL,
+     "get directive attributes rejects non-directive nodes");
+
+  cmark_node_free(doc);
+
+  doc = parse_with_directive_extension(":a{data-x=1}\n");
+  char *commonmark = cmark_render_commonmark(doc, CMARK_OPT_DEFAULT, 0);
+  STR_EQ(runner, commonmark, ":a{data-x=\"1\"}\n",
+         "directive attribute-only commonmark renders attributes once");
+  free(commonmark);
+  cmark_node_free(doc);
+
+  doc = parse_with_directive_extension(
+      ":x[]{#safe .ok data-kind=ref onclick=alert(1) "
+      "style=\"color:red\" href=javascript:alert(1)}\n");
+  char *html = cmark_render_html(doc, CMARK_OPT_DEFAULT, NULL);
+  STR_EQ(runner, html,
+         "<p><span data-directive=\"x\" id=\"safe\" class=\"ok\" "
+         "data-kind=\"ref\"></span></p>\n",
+         "directive HTML strips unsafe attributes in safe mode");
+  free(html);
+  html = cmark_render_html(doc, CMARK_OPT_UNSAFE, NULL);
+  STR_EQ(runner, html,
+         "<p><span data-directive=\"x\" id=\"safe\" class=\"ok\" "
+         "data-kind=\"ref\" onclick=\"alert(1)\" style=\"color:red\" "
+         "href=\"javascript:alert(1)\"></span></p>\n",
+         "directive HTML preserves attributes in unsafe mode");
+  free(html);
   cmark_node_free(doc);
 }
 
@@ -1261,6 +1347,7 @@ int main() {
   constructor(runner);
   accessors(runner);
   formula_extension_accessors(runner);
+  directive_extension_accessors(runner);
   node_check(runner);
   iterator(runner);
   iterator_delete(runner);
