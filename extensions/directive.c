@@ -18,9 +18,8 @@
 #define DIRECTIVE_LABEL_DELIM 8
 #define DIRECTIVE_ATTR_DELIM 9
 
-cmark_node_type CMARK_NODE_DIRECTIVE;
-cmark_node_type CMARK_NODE_DIRECTIVE_LEAF;
-cmark_node_type CMARK_NODE_DIRECTIVE_CONTAINER;
+cmark_node_type CMARK_NODE_DIRECTIVE_INLINE;
+cmark_node_type CMARK_NODE_DIRECTIVE_BLOCK;
 cmark_node_type CMARK_NODE_DIRECTIVE_LABEL;
 
 typedef struct {
@@ -46,9 +45,8 @@ typedef struct {
 } parsed_directive;
 
 static int is_directive_node(cmark_node *node) {
-  return node && (node->type == CMARK_NODE_DIRECTIVE ||
-                  node->type == CMARK_NODE_DIRECTIVE_LEAF ||
-                  node->type == CMARK_NODE_DIRECTIVE_CONTAINER);
+  return node && (node->type == CMARK_NODE_DIRECTIVE_INLINE ||
+                  node->type == CMARK_NODE_DIRECTIVE_BLOCK);
 }
 
 static int is_label_node(cmark_node *node) {
@@ -636,7 +634,7 @@ static cmark_node *make_inline_directive_node(cmark_syntax_extension *extension,
                                               int end_line,
                                               int end_column) {
   cmark_node *node = cmark_node_new_with_mem_and_ext(
-      CMARK_NODE_DIRECTIVE, parser->mem, extension);
+      CMARK_NODE_DIRECTIVE_INLINE, parser->mem, extension);
   node_directive *directive;
 
   if (!node)
@@ -853,7 +851,6 @@ static cmark_node *open_directive_block(cmark_syntax_extension *extension,
   bufsize_t first_nonspace = (bufsize_t)cmark_parser_get_first_nonspace(parser);
   bufsize_t colon_count;
   parsed_directive parsed;
-  cmark_node_type node_type;
   cmark_node *node;
   node_directive *directive;
 
@@ -873,10 +870,8 @@ static cmark_node *open_directive_block(cmark_syntax_extension *extension,
     return NULL;
   }
 
-  node_type = colon_count == 2 ? CMARK_NODE_DIRECTIVE_LEAF
-                               : CMARK_NODE_DIRECTIVE_CONTAINER;
-
-  node = cmark_parser_add_child(parser, parent_container, node_type,
+  node = cmark_parser_add_child(parser, parent_container,
+                                CMARK_NODE_DIRECTIVE_BLOCK,
                                 (int)first_nonspace + 1);
   if (!node) {
     free_parsed_directive(parser->mem, &parsed);
@@ -896,6 +891,7 @@ static cmark_node *open_directive_block(cmark_syntax_extension *extension,
 
   directive = get_directive(node);
   directive->fence_length = (int)colon_count;
+  directive->closed = (colon_count == 2);
   directive->consume_line = 1;
 
   cmark_parser_advance_offset(parser, (char *)input,
@@ -913,9 +909,6 @@ static int directive_block_matches(cmark_syntax_extension *extension,
   bufsize_t colon_count;
 
   if (!directive)
-    return 0;
-
-  if (container->type == CMARK_NODE_DIRECTIVE_LEAF)
     return 0;
 
   if (directive->closed)
@@ -1247,7 +1240,7 @@ static void html_render(cmark_syntax_extension *extension,
   if (!directive)
     return;
 
-  if (node->type == CMARK_NODE_DIRECTIVE) {
+  if (node->type == CMARK_NODE_DIRECTIVE_INLINE) {
     if (ev_type == CMARK_EVENT_ENTER) {
       cmark_strbuf_puts(renderer->html, "<span data-directive=\"");
       render_directive_name(renderer->html, directive);
@@ -1315,10 +1308,10 @@ static void commonmark_render(cmark_syntax_extension *extension,
       renderer->out(renderer, node, "[", false, LITERAL);
     } else {
       renderer->out(renderer, node, "]", false, LITERAL);
-      if (parent_directive && parent &&
-          parent->type != CMARK_NODE_DIRECTIVE) {
+      if (parent_directive && parent && parent->type != CMARK_NODE_DIRECTIVE_INLINE) {
         render_commonmark_attrs(renderer, parent, parent_directive);
-        if (parent->type == CMARK_NODE_DIRECTIVE_CONTAINER)
+        if (parent->type == CMARK_NODE_DIRECTIVE_BLOCK &&
+            parent_directive->fence_length >= 3)
           renderer->cr(renderer);
       }
     }
@@ -1328,7 +1321,7 @@ static void commonmark_render(cmark_syntax_extension *extension,
   if (!directive)
     return;
 
-  if (node->type == CMARK_NODE_DIRECTIVE) {
+  if (node->type == CMARK_NODE_DIRECTIVE_INLINE) {
     if (ev_type == CMARK_EVENT_ENTER)
       render_commonmark_opening(renderer, node, directive, ":");
     else if (directive->has_label)
@@ -1336,17 +1329,17 @@ static void commonmark_render(cmark_syntax_extension *extension,
     return;
   }
 
-  if (node->type == CMARK_NODE_DIRECTIVE_LEAF) {
-    if (ev_type == CMARK_EVENT_ENTER) {
-      renderer->blankline(renderer);
-      render_commonmark_opening(renderer, node, directive, "::");
-    } else {
-      renderer->blankline(renderer);
+  if (node->type == CMARK_NODE_DIRECTIVE_BLOCK) {
+    if (directive->fence_length == 2) {
+      if (ev_type == CMARK_EVENT_ENTER) {
+        renderer->blankline(renderer);
+        render_commonmark_opening(renderer, node, directive, "::");
+      } else {
+        renderer->blankline(renderer);
+      }
+      return;
     }
-    return;
-  }
 
-  if (node->type == CMARK_NODE_DIRECTIVE_CONTAINER) {
     if (ev_type == CMARK_EVENT_ENTER) {
       renderer->blankline(renderer);
       if (directive->fence_length < 3)
@@ -1415,13 +1408,10 @@ static const char *xml_attr(cmark_syntax_extension *extension,
 
 static const char *get_type_string(cmark_syntax_extension *extension,
                                    cmark_node *node) {
-  if (node->type == CMARK_NODE_DIRECTIVE)
+  if (node->type == CMARK_NODE_DIRECTIVE_INLINE)
     return "directive";
 
-  if (node->type == CMARK_NODE_DIRECTIVE_LEAF)
-    return "directive_leaf";
-
-  if (node->type == CMARK_NODE_DIRECTIVE_CONTAINER)
+  if (node->type == CMARK_NODE_DIRECTIVE_BLOCK)
     return "directive_container";
 
   if (node->type == CMARK_NODE_DIRECTIVE_LABEL)
@@ -1432,13 +1422,10 @@ static const char *get_type_string(cmark_syntax_extension *extension,
 
 static int can_contain(cmark_syntax_extension *extension, cmark_node *node,
                        cmark_node_type child_type) {
-  if (node->type == CMARK_NODE_DIRECTIVE)
+  if (node->type == CMARK_NODE_DIRECTIVE_INLINE)
     return child_type == CMARK_NODE_DIRECTIVE_LABEL;
 
-  if (node->type == CMARK_NODE_DIRECTIVE_LEAF)
-    return child_type == CMARK_NODE_DIRECTIVE_LABEL;
-
-  if (node->type == CMARK_NODE_DIRECTIVE_CONTAINER)
+  if (node->type == CMARK_NODE_DIRECTIVE_BLOCK)
     return child_type == CMARK_NODE_DIRECTIVE_LABEL ||
            (CMARK_NODE_TYPE_BLOCK_P(child_type) &&
             child_type != CMARK_NODE_ITEM && child_type != CMARK_NODE_DOCUMENT);
@@ -1461,8 +1448,10 @@ static int accepts_lines(cmark_syntax_extension *extension, cmark_node *node) {
   if (!directive)
     return 0;
 
-  return node->type == CMARK_NODE_DIRECTIVE_LEAF ||
-         directive->consume_line;
+  if (node->type != CMARK_NODE_DIRECTIVE_BLOCK)
+    return 0;
+
+  return directive->fence_length == 2 || directive->consume_line;
 }
 
 cmark_syntax_extension *create_directive_extension(void) {
@@ -1470,9 +1459,8 @@ cmark_syntax_extension *create_directive_extension(void) {
   cmark_llist *special_chars = NULL;
   cmark_mem *mem = cmark_get_default_mem_allocator();
 
-  CMARK_NODE_DIRECTIVE = cmark_syntax_extension_add_node(1);
-  CMARK_NODE_DIRECTIVE_LEAF = cmark_syntax_extension_add_node(0);
-  CMARK_NODE_DIRECTIVE_CONTAINER = cmark_syntax_extension_add_node(0);
+  CMARK_NODE_DIRECTIVE_INLINE = cmark_syntax_extension_add_node(1);
+  CMARK_NODE_DIRECTIVE_BLOCK = cmark_syntax_extension_add_node(0);
   CMARK_NODE_DIRECTIVE_LABEL = cmark_syntax_extension_add_node(1);
 
   cmark_syntax_extension_set_match_inline_func(ext, match);
