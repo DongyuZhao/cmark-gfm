@@ -87,15 +87,16 @@ CMARK_GFM_EXPORT
 int cmark_gfm_extensions_set_directive_name(cmark_node *node,
                                             const char *name);
 
-/** Returns normalized HTML attributes for directive extension nodes, or
- * NULL on error.
+/** Returns directive attributes as a normalized JSON object string, or
+ * NULL on error. Attribute values are strings; null values are omitted.
  */
 CMARK_GFM_EXPORT
 const char *
 cmark_gfm_extensions_get_directive_attributes(cmark_node *node);
 
-/** Sets normalized HTML attributes for directive extension nodes,
- * returning 1 on success and 0 on error.
+/** Sets directive attributes from a JSON object string, returning 1 on
+ * success and 0 on error. Object values must be strings or null; null values
+ * are omitted.
  */
 CMARK_GFM_EXPORT
 int cmark_gfm_extensions_set_directive_attributes(cmark_node *node,

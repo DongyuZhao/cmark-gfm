@@ -8,8 +8,13 @@ license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
 
 ## Directives
 
-Text directives use one colon. The label parses inline Markdown and attributes
-are rendered on the generated wrapper.
+Text directives use one colon. The label parses inline Markdown. Attributes
+are directive metadata; the default HTML renderer projects them onto the
+generated wrapper.
+
+Directive AST/API attributes are exposed as normalized JSON object strings,
+not serialized HTML attributes. Attribute values are strings, and null values
+are omitted when setting attributes through the API.
 
 ```````````````````````````````` example
 Use :cite[Smith *et al.*]{#smith .paper data-kind=ref} here.
@@ -71,8 +76,8 @@ but they cannot end with a hyphen or underscore.
 <span data-directive="_a"></span></p>
 ````````````````````````````````
 
-Leaf directives use two colons on their own line. Classes from shortcuts and
-attributes are combined.
+Leaf directives use two colons on their own line. Class metadata from shortcuts
+and explicit class fields is combined.
 
 ```````````````````````````````` example
 ::youtube[Video of a *cat*]{vid=01ab2cd3efg .embed class=featured}

@@ -1,6 +1,7 @@
 #include "directive.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <buffer.h>
@@ -12,6 +13,7 @@
 #include <node.h>
 #include <parser.h>
 #include <render.h>
+#include <utf8.h>
 
 #include "ext_scanners.h"
 
@@ -22,9 +24,16 @@ cmark_node_type CMARK_NODE_DIRECTIVE_INLINE;
 cmark_node_type CMARK_NODE_DIRECTIVE_BLOCK;
 cmark_node_type CMARK_NODE_DIRECTIVE_LABEL;
 
+typedef struct directive_attribute {
+  cmark_chunk name;
+  cmark_chunk value;
+  struct directive_attribute *next;
+} directive_attribute;
+
 typedef struct {
   cmark_chunk name;
-  cmark_chunk attributes;
+  directive_attribute *attributes;
+  cmark_chunk attributes_json;
   cmark_chunk xml_attr;
   int fence_length;
   int closed;
@@ -40,7 +49,7 @@ typedef struct {
   bufsize_t label_len;
   int has_label;
   int has_attributes;
-  cmark_chunk attributes;
+  directive_attribute *attributes;
   bufsize_t end;
 } parsed_directive;
 
@@ -75,6 +84,8 @@ static int ascii_is_line_space(unsigned char c) {
 static unsigned char ascii_lower(unsigned char c) {
   return c >= 'A' && c <= 'Z' ? (unsigned char)(c + ('a' - 'A')) : c;
 }
+
+static int is_attr_name_char(unsigned char c);
 
 static int is_line_end(const unsigned char *data, bufsize_t len,
                        bufsize_t pos) {
@@ -182,6 +193,12 @@ static void clear_xml_attr(cmark_node *node, node_directive *directive) {
   cmark_chunk_free(cmark_node_mem(node), &directive->xml_attr);
 }
 
+static void clear_attribute_caches(cmark_node *node,
+                                   node_directive *directive) {
+  cmark_chunk_free(cmark_node_mem(node), &directive->attributes_json);
+  clear_xml_attr(node, directive);
+}
+
 static void set_chunk_bytes(cmark_mem *mem, cmark_chunk *chunk,
                             const unsigned char *data, bufsize_t len) {
   cmark_chunk_free(mem, chunk);
@@ -189,6 +206,413 @@ static void set_chunk_bytes(cmark_mem *mem, cmark_chunk *chunk,
   chunk->len = len;
   chunk->alloc = 0;
   cmark_chunk_to_cstr(mem, chunk);
+}
+
+static void free_attribute_list(cmark_mem *mem, directive_attribute *attr) {
+  while (attr) {
+    directive_attribute *next = attr->next;
+    cmark_chunk_free(mem, &attr->name);
+    cmark_chunk_free(mem, &attr->value);
+    mem->free(attr);
+    attr = next;
+  }
+}
+
+static int attribute_name_equals(directive_attribute *attr,
+                                 const unsigned char *name,
+                                 bufsize_t name_len) {
+  return attr->name.len == name_len &&
+         memcmp(attr->name.data, name, name_len) == 0;
+}
+
+static int attribute_name_is_valid(const unsigned char *name,
+                                   bufsize_t name_len) {
+  bufsize_t i;
+
+  if (name_len == 0)
+    return 0;
+
+  for (i = 0; i < name_len; i++) {
+    if (!is_attr_name_char(name[i]))
+      return 0;
+  }
+
+  return 1;
+}
+
+static int set_or_append_attribute(cmark_mem *mem, directive_attribute **head,
+                                   directive_attribute **tail,
+                                   const unsigned char *name,
+                                   bufsize_t name_len,
+                                   const unsigned char *value,
+                                   bufsize_t value_len) {
+  directive_attribute *attr;
+
+  if (!attribute_name_is_valid(name, name_len))
+    return 0;
+
+  for (attr = *head; attr; attr = attr->next) {
+    if (attribute_name_equals(attr, name, name_len)) {
+      set_chunk_bytes(mem, &attr->value, value, value_len);
+      return 1;
+    }
+  }
+
+  attr = (directive_attribute *)mem->calloc(1, sizeof(*attr));
+  if (!attr)
+    return 0;
+
+  set_chunk_bytes(mem, &attr->name, name, name_len);
+  set_chunk_bytes(mem, &attr->value, value, value_len);
+
+  if (*tail) {
+    (*tail)->next = attr;
+  } else {
+    *head = attr;
+  }
+  *tail = attr;
+  return 1;
+}
+
+static void remove_attribute(cmark_mem *mem, directive_attribute **head,
+                             directive_attribute **tail,
+                             const unsigned char *name, bufsize_t name_len) {
+  directive_attribute *previous = NULL;
+  directive_attribute *attr = *head;
+
+  while (attr) {
+    directive_attribute *next = attr->next;
+    if (attribute_name_equals(attr, name, name_len)) {
+      if (previous)
+        previous->next = next;
+      else
+        *head = next;
+      if (*tail == attr)
+        *tail = previous;
+      attr->next = NULL;
+      free_attribute_list(mem, attr);
+      return;
+    }
+    previous = attr;
+    attr = next;
+  }
+}
+
+static void append_json_escaped(cmark_strbuf *buf, const unsigned char *data,
+                                bufsize_t len) {
+  bufsize_t i;
+  char encoded[7];
+
+  for (i = 0; i < len; i++) {
+    unsigned char c = data[i];
+    switch (c) {
+    case '"':
+      cmark_strbuf_puts(buf, "\\\"");
+      break;
+    case '\\':
+      cmark_strbuf_puts(buf, "\\\\");
+      break;
+    case '\b':
+      cmark_strbuf_puts(buf, "\\b");
+      break;
+    case '\f':
+      cmark_strbuf_puts(buf, "\\f");
+      break;
+    case '\n':
+      cmark_strbuf_puts(buf, "\\n");
+      break;
+    case '\r':
+      cmark_strbuf_puts(buf, "\\r");
+      break;
+    case '\t':
+      cmark_strbuf_puts(buf, "\\t");
+      break;
+    default:
+      if (c < 0x20) {
+        snprintf(encoded, sizeof(encoded), "\\u%04x", c);
+        cmark_strbuf_puts(buf, encoded);
+      } else {
+        cmark_strbuf_putc(buf, c);
+      }
+    }
+  }
+}
+
+static void render_one_json_attribute(cmark_strbuf *json,
+                                      directive_attribute *attr,
+                                      int *first) {
+  if (!*first)
+    cmark_strbuf_putc(json, ',');
+  *first = 0;
+  cmark_strbuf_putc(json, '"');
+  append_json_escaped(json, attr->name.data, attr->name.len);
+  cmark_strbuf_puts(json, "\":\"");
+  append_json_escaped(json, attr->value.data, attr->value.len);
+  cmark_strbuf_putc(json, '"');
+}
+
+static const char *render_attributes_json(cmark_node *node,
+                                          node_directive *directive) {
+  cmark_strbuf json;
+  directive_attribute *attr;
+  directive_attribute *id_attr = NULL;
+  directive_attribute *class_attr = NULL;
+  int first = 1;
+
+  if (directive->attributes_json.data)
+    return (const char *)directive->attributes_json.data;
+
+  cmark_strbuf_init(cmark_node_mem(node), &json, 0);
+  cmark_strbuf_putc(&json, '{');
+  for (attr = directive->attributes; attr; attr = attr->next) {
+    if (attribute_name_equals(attr, (const unsigned char *)"id", 2)) {
+      id_attr = attr;
+    } else if (attribute_name_equals(attr, (const unsigned char *)"class",
+                                    5)) {
+      class_attr = attr;
+    }
+  }
+  if (id_attr)
+    render_one_json_attribute(&json, id_attr, &first);
+  if (class_attr)
+    render_one_json_attribute(&json, class_attr, &first);
+  for (attr = directive->attributes; attr; attr = attr->next) {
+    if (!attribute_name_equals(attr, (const unsigned char *)"id", 2) &&
+        !attribute_name_equals(attr, (const unsigned char *)"class", 5))
+      render_one_json_attribute(&json, attr, &first);
+  }
+  cmark_strbuf_putc(&json, '}');
+
+  directive->attributes_json = cmark_chunk_buf_detach(&json);
+  return (const char *)directive->attributes_json.data;
+}
+
+static void skip_json_space(const unsigned char *data, bufsize_t len,
+                            bufsize_t *pos) {
+  while (*pos < len && ascii_is_space(data[*pos]))
+    (*pos)++;
+}
+
+static int json_hex_value(unsigned char c) {
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  if (c >= 'a' && c <= 'f')
+    return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F')
+    return c - 'A' + 10;
+  return -1;
+}
+
+static int parse_json_hex4(const unsigned char *data, bufsize_t len,
+                           bufsize_t *pos, int32_t *codepoint) {
+  int i;
+  int32_t value = 0;
+
+  if (*pos + 4 > len)
+    return 0;
+
+  for (i = 0; i < 4; i++) {
+    int digit = json_hex_value(data[*pos + (bufsize_t)i]);
+    if (digit < 0)
+      return 0;
+    value = (value << 4) | digit;
+  }
+
+  *pos += 4;
+  *codepoint = value;
+  return 1;
+}
+
+static int parse_json_unicode_escape(const unsigned char *data, bufsize_t len,
+                                     bufsize_t *pos, cmark_strbuf *buf) {
+  int32_t codepoint;
+
+  if (!parse_json_hex4(data, len, pos, &codepoint))
+    return 0;
+
+  if (codepoint >= 0xD800 && codepoint <= 0xDBFF) {
+    int32_t low;
+    if (*pos + 2 > len || data[*pos] != '\\' || data[*pos + 1] != 'u')
+      return 0;
+    *pos += 2;
+    if (!parse_json_hex4(data, len, pos, &low) || low < 0xDC00 ||
+        low > 0xDFFF)
+      return 0;
+    codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
+  } else if (codepoint >= 0xDC00 && codepoint <= 0xDFFF) {
+    return 0;
+  }
+
+  cmark_utf8proc_encode_char(codepoint, buf);
+  return 1;
+}
+
+static int parse_json_string(cmark_mem *mem, const unsigned char *data,
+                             bufsize_t len, bufsize_t *pos,
+                             cmark_chunk *result) {
+  cmark_strbuf value;
+
+  if (*pos >= len || data[*pos] != '"')
+    return 0;
+
+  (*pos)++;
+  cmark_strbuf_init(mem, &value, 0);
+  while (*pos < len) {
+    unsigned char c = data[*pos];
+    (*pos)++;
+
+    if (c == '"') {
+      *result = cmark_chunk_buf_detach(&value);
+      return 1;
+    }
+
+    if (c < 0x20) {
+      cmark_strbuf_free(&value);
+      return 0;
+    }
+
+    if (c == '\\') {
+      if (*pos >= len) {
+        cmark_strbuf_free(&value);
+        return 0;
+      }
+
+      c = data[*pos];
+      (*pos)++;
+      switch (c) {
+      case '"':
+      case '\\':
+      case '/':
+        cmark_strbuf_putc(&value, c);
+        break;
+      case 'b':
+        cmark_strbuf_putc(&value, '\b');
+        break;
+      case 'f':
+        cmark_strbuf_putc(&value, '\f');
+        break;
+      case 'n':
+        cmark_strbuf_putc(&value, '\n');
+        break;
+      case 'r':
+        cmark_strbuf_putc(&value, '\r');
+        break;
+      case 't':
+        cmark_strbuf_putc(&value, '\t');
+        break;
+      case 'u':
+        if (!parse_json_unicode_escape(data, len, pos, &value)) {
+          cmark_strbuf_free(&value);
+          return 0;
+        }
+        break;
+      default:
+        cmark_strbuf_free(&value);
+        return 0;
+      }
+    } else {
+      cmark_strbuf_putc(&value, c);
+    }
+  }
+
+  cmark_strbuf_free(&value);
+  return 0;
+}
+
+static int parse_json_null(const unsigned char *data, bufsize_t len,
+                           bufsize_t *pos) {
+  if (*pos + 4 <= len && memcmp(data + *pos, "null", 4) == 0) {
+    *pos += 4;
+    return 1;
+  }
+
+  return 0;
+}
+
+static int parse_attributes_json(cmark_mem *mem, const unsigned char *data,
+                                 bufsize_t len,
+                                 directive_attribute **result) {
+  directive_attribute *attrs = NULL;
+  directive_attribute *tail = NULL;
+  bufsize_t pos = 0;
+  int ok = 0;
+
+#define FAIL_JSON_ATTRIBUTE                                                     \
+  do {                                                                         \
+    cmark_chunk_free(mem, &name);                                              \
+    cmark_chunk_free(mem, &value);                                             \
+    goto done;                                                                 \
+  } while (0)
+
+  *result = NULL;
+  skip_json_space(data, len, &pos);
+  if (pos >= len || data[pos] != '{')
+    return 0;
+  pos++;
+  skip_json_space(data, len, &pos);
+
+  if (pos < len && data[pos] == '}') {
+    pos++;
+    skip_json_space(data, len, &pos);
+    return pos == len;
+  }
+
+  while (pos < len) {
+    cmark_chunk name = CMARK_CHUNK_EMPTY;
+    cmark_chunk value = CMARK_CHUNK_EMPTY;
+    int is_null = 0;
+
+    if (!parse_json_string(mem, data, len, &pos, &name))
+      FAIL_JSON_ATTRIBUTE;
+    if (!attribute_name_is_valid(name.data, name.len))
+      FAIL_JSON_ATTRIBUTE;
+
+    skip_json_space(data, len, &pos);
+    if (pos >= len || data[pos] != ':')
+      FAIL_JSON_ATTRIBUTE;
+    pos++;
+    skip_json_space(data, len, &pos);
+
+    if (parse_json_null(data, len, &pos)) {
+      is_null = 1;
+      remove_attribute(mem, &attrs, &tail, name.data, name.len);
+    } else if (!parse_json_string(mem, data, len, &pos, &value)) {
+      FAIL_JSON_ATTRIBUTE;
+    }
+
+    if (!is_null &&
+        !set_or_append_attribute(mem, &attrs, &tail, name.data, name.len,
+                                 value.data, value.len))
+      FAIL_JSON_ATTRIBUTE;
+
+    cmark_chunk_free(mem, &name);
+    cmark_chunk_free(mem, &value);
+
+    skip_json_space(data, len, &pos);
+    if (pos < len && data[pos] == ',') {
+      pos++;
+      skip_json_space(data, len, &pos);
+      continue;
+    }
+
+    if (pos < len && data[pos] == '}') {
+      pos++;
+      skip_json_space(data, len, &pos);
+      ok = pos == len;
+      break;
+    }
+
+    FAIL_JSON_ATTRIBUTE;
+  }
+
+done:
+#undef FAIL_JSON_ATTRIBUTE
+  if (ok) {
+    *result = attrs;
+  } else {
+    free_attribute_list(mem, attrs);
+  }
+  return ok;
 }
 
 const char *cmark_gfm_extensions_get_directive_name(cmark_node *node) {
@@ -244,19 +668,26 @@ cmark_gfm_extensions_get_directive_attributes(cmark_node *node) {
   if (!directive)
     return NULL;
 
-  return cmark_chunk_to_cstr(cmark_node_mem(node), &directive->attributes);
+  return render_attributes_json(node, directive);
 }
 
 int cmark_gfm_extensions_set_directive_attributes(
     cmark_node *node, const char *attributes) {
   node_directive *directive = get_directive(node);
+  directive_attribute *parsed_attributes = NULL;
   if (!directive || !attributes)
     return 0;
 
-  cmark_chunk_set_cstr(cmark_node_mem(node), &directive->attributes,
-                       attributes);
+  if (!parse_attributes_json(cmark_node_mem(node),
+                             (const unsigned char *)attributes,
+                             (bufsize_t)strlen(attributes),
+                             &parsed_attributes))
+    return 0;
+
+  free_attribute_list(cmark_node_mem(node), directive->attributes);
+  directive->attributes = parsed_attributes;
   directive->has_attributes = 1;
-  clear_xml_attr(node, directive);
+  clear_attribute_caches(node, directive);
   return 1;
 }
 
@@ -273,7 +704,8 @@ static void directive_opaque_free(cmark_syntax_extension *extension,
     return;
 
   cmark_chunk_free(mem, &directive->name);
-  cmark_chunk_free(mem, &directive->attributes);
+  free_attribute_list(mem, directive->attributes);
+  cmark_chunk_free(mem, &directive->attributes_json);
   cmark_chunk_free(mem, &directive->xml_attr);
   mem->free(directive);
 }
@@ -384,32 +816,22 @@ static int parse_attr_value(const unsigned char *data, bufsize_t len,
   return 1;
 }
 
-static void append_normal_attr(cmark_strbuf *attrs, const unsigned char *name,
-                               bufsize_t name_len, const unsigned char *value,
-                               bufsize_t value_len) {
-  if (attrs->size)
-    cmark_strbuf_putc(attrs, ' ');
-  cmark_strbuf_put(attrs, name, name_len);
-  cmark_strbuf_puts(attrs, "=\"");
-  append_escaped(attrs, value, value_len);
-  cmark_strbuf_putc(attrs, '"');
-}
-
-static int normalize_attributes(cmark_mem *mem, const unsigned char *data,
-                                bufsize_t len, cmark_chunk *result) {
+static int parse_attributes(cmark_mem *mem, const unsigned char *data,
+                            bufsize_t len, directive_attribute **result) {
   cmark_strbuf id;
   cmark_strbuf classes;
-  cmark_strbuf attrs;
-  cmark_strbuf normalized;
+  directive_attribute *attrs = NULL;
+  directive_attribute *tail = NULL;
+  directive_attribute *final_attrs = NULL;
+  directive_attribute *final_tail = NULL;
   bufsize_t pos = 0;
   int has_id = 0;
   int has_class = 0;
   int ok = 1;
 
+  *result = NULL;
   cmark_strbuf_init(mem, &id, 0);
   cmark_strbuf_init(mem, &classes, 0);
-  cmark_strbuf_init(mem, &attrs, 0);
-  cmark_strbuf_init(mem, &normalized, 0);
 
   while (pos < len) {
     bufsize_t start;
@@ -481,44 +903,50 @@ static int normalize_attributes(cmark_mem *mem, const unsigned char *data,
       append_class_value(&classes, value, value_len);
       has_class = 1;
     } else {
-      append_normal_attr(&attrs, data + start, name_len, value, value_len);
+      if (!set_or_append_attribute(mem, &attrs, &tail, data + start, name_len,
+                                   value, value_len)) {
+        ok = 0;
+        break;
+      }
     }
   }
 
   if (ok) {
-    if (has_id) {
-      cmark_strbuf_puts(&normalized, "id=\"");
-      append_escaped(&normalized, id.ptr, id.size);
-      cmark_strbuf_putc(&normalized, '"');
+    if (has_id &&
+        !set_or_append_attribute(mem, &final_attrs, &final_tail,
+                                 (const unsigned char *)"id", 2, id.ptr,
+                                 id.size)) {
+      ok = 0;
     }
 
-    if (has_class) {
-      if (normalized.size)
-        cmark_strbuf_putc(&normalized, ' ');
-      cmark_strbuf_puts(&normalized, "class=\"");
-      append_escaped(&normalized, classes.ptr, classes.size);
-      cmark_strbuf_putc(&normalized, '"');
+    if (ok && has_class &&
+        !set_or_append_attribute(mem, &final_attrs, &final_tail,
+                                 (const unsigned char *)"class", 5,
+                                 classes.ptr, classes.size)) {
+      ok = 0;
     }
 
-    if (attrs.size) {
-      if (normalized.size)
-        cmark_strbuf_putc(&normalized, ' ');
-      cmark_strbuf_put(&normalized, attrs.ptr, attrs.size);
+    if (ok) {
+      if (final_tail) {
+        final_tail->next = attrs;
+      } else {
+        final_attrs = attrs;
+      }
+      attrs = NULL;
+      *result = final_attrs;
+      final_attrs = NULL;
     }
-
-    *result = cmark_chunk_buf_detach(&normalized);
-  } else {
-    cmark_strbuf_free(&normalized);
   }
 
+  free_attribute_list(mem, attrs);
+  free_attribute_list(mem, final_attrs);
   cmark_strbuf_free(&id);
   cmark_strbuf_free(&classes);
-  cmark_strbuf_free(&attrs);
   return ok;
 }
 
 static void free_parsed_directive(cmark_mem *mem, parsed_directive *parsed) {
-  cmark_chunk_free(mem, &parsed->attributes);
+  free_attribute_list(mem, parsed->attributes);
 }
 
 static int parse_directive_suffix(cmark_mem *mem, unsigned char *data,
@@ -545,8 +973,8 @@ static int parse_directive_suffix(cmark_mem *mem, unsigned char *data,
     parsed->has_attributes = 1;
     if (!scan_attributes_raw(data, len, pos, &attr_start, &attr_len, &pos))
       return 0;
-    if (!normalize_attributes(mem, data + attr_start, attr_len,
-                              &parsed->attributes))
+    if (!parse_attributes(mem, data + attr_start, attr_len,
+                          &parsed->attributes))
       return 0;
   }
 
@@ -605,9 +1033,10 @@ static int apply_parsed_directive(cmark_syntax_extension *extension,
   directive->has_attributes = parsed->has_attributes;
 
   if (parsed->has_attributes) {
-    cmark_chunk_free(mem, &directive->attributes);
+    free_attribute_list(mem, directive->attributes);
     directive->attributes = parsed->attributes;
-    parsed->attributes = (cmark_chunk)CMARK_CHUNK_EMPTY;
+    parsed->attributes = NULL;
+    clear_attribute_caches(node, directive);
   }
 
   if (parsed->has_label) {
@@ -723,21 +1152,20 @@ static delimiter *find_directive_opener(cmark_inline_parser *inline_parser,
   return NULL;
 }
 
-static int scan_normalized_attributes(cmark_mem *mem,
-                                      const unsigned char *data,
-                                      bufsize_t len, bufsize_t pos,
-                                      bufsize_t *end) {
-  cmark_chunk normalized = CMARK_CHUNK_EMPTY;
+static int scan_parsed_attributes(cmark_mem *mem, const unsigned char *data,
+                                  bufsize_t len, bufsize_t pos,
+                                  bufsize_t *end) {
+  directive_attribute *attributes = NULL;
   bufsize_t attr_start;
   bufsize_t attr_len;
 
   if (!scan_attributes_raw(data, len, pos, &attr_start, &attr_len, end))
     return 0;
 
-  if (!normalize_attributes(mem, data + attr_start, attr_len, &normalized))
+  if (!parse_attributes(mem, data + attr_start, attr_len, &attributes))
     return 0;
 
-  cmark_chunk_free(mem, &normalized);
+  free_attribute_list(mem, attributes);
   return 1;
 }
 
@@ -789,8 +1217,8 @@ static cmark_node *match_label_closer(cmark_parser *parser,
     return NULL;
 
   if (offset + 1 < chunk->len && chunk->data[offset + 1] == '{' &&
-      scan_normalized_attributes(parser->mem, chunk->data, chunk->len,
-                                 offset + 1, &end)) {
+      scan_parsed_attributes(parser->mem, chunk->data, chunk->len,
+                             offset + 1, &end)) {
     closer_len = end - offset;
   }
 
@@ -955,22 +1383,21 @@ static void free_nodes_through(cmark_node *first, cmark_node *last) {
   }
 }
 
-static int set_normalized_attributes(cmark_node *node,
-                                     const unsigned char *data,
-                                     bufsize_t len) {
+static int set_parsed_attributes(cmark_node *node, const unsigned char *data,
+                                 bufsize_t len) {
   node_directive *directive = get_directive(node);
-  cmark_chunk attributes = CMARK_CHUNK_EMPTY;
+  directive_attribute *attributes = NULL;
 
   if (!directive)
     return 0;
 
-  if (!normalize_attributes(cmark_node_mem(node), data, len, &attributes))
+  if (!parse_attributes(cmark_node_mem(node), data, len, &attributes))
     return 0;
 
-  cmark_chunk_free(cmark_node_mem(node), &directive->attributes);
+  free_attribute_list(cmark_node_mem(node), directive->attributes);
   directive->attributes = attributes;
   directive->has_attributes = 1;
-  clear_xml_attr(node, directive);
+  clear_attribute_caches(node, directive);
   return 1;
 }
 
@@ -985,7 +1412,7 @@ static int set_attributes_from_wrapper(cmark_node *node,
       end != len)
     return 0;
 
-  return set_normalized_attributes(node, data + attr_start, attr_len);
+  return set_parsed_attributes(node, data + attr_start, attr_len);
 }
 
 static cmark_node *make_empty_label_node(cmark_syntax_extension *extension,
@@ -1108,8 +1535,8 @@ static delimiter *insert_attribute_directive(cmark_syntax_extension *extension,
   if (!directive_node)
     goto done;
 
-  if (!set_normalized_attributes(directive_node, chunk->data + body_start,
-                                 body_end - body_start)) {
+  if (!set_parsed_attributes(directive_node, chunk->data + body_start,
+                             body_end - body_start)) {
     cmark_node_free(directive_node);
     goto done;
   }
@@ -1171,62 +1598,24 @@ static void render_one_html_attr(cmark_strbuf *html, const unsigned char *name,
   cmark_strbuf_putc(html, ' ');
   cmark_strbuf_put(html, name, name_len);
   cmark_strbuf_puts(html, "=\"");
-  cmark_strbuf_put(html, value, value_len);
+  append_escaped(html, value, value_len);
   cmark_strbuf_putc(html, '"');
-}
-
-static void render_safe_html_attrs(cmark_strbuf *html,
-                                   const unsigned char *data, bufsize_t len) {
-  bufsize_t pos = 0;
-
-  while (pos < len) {
-    bufsize_t name_start;
-    bufsize_t name_len;
-    const unsigned char *value;
-    bufsize_t value_len;
-
-    while (pos < len && ascii_is_space(data[pos]))
-      pos++;
-
-    name_start = pos;
-    while (pos < len && is_attr_name_char(data[pos]))
-      pos++;
-
-    name_len = pos - name_start;
-    if (name_len == 0)
-      break;
-
-    while (pos < len && ascii_is_space(data[pos]))
-      pos++;
-
-    if (pos >= len || data[pos] != '=')
-      break;
-    pos++;
-
-    if (!parse_attr_value(data, len, &pos, &value, &value_len))
-      break;
-
-    if (is_safe_html_attr_name(data + name_start, name_len)) {
-      render_one_html_attr(html, data + name_start, name_len, value,
-                           value_len);
-    }
-  }
 }
 
 static void render_html_attrs(cmark_strbuf *html,
                               node_directive *directive, int options) {
-  if (directive->attributes.len == 0)
-    return;
+  directive_attribute *attr;
 
-  if (options & CMARK_OPT_UNSAFE) {
-    cmark_strbuf_putc(html, ' ');
-    cmark_strbuf_put(html, directive->attributes.data,
-                     directive->attributes.len);
-    return;
+  for (attr = directive->attributes; attr; attr = attr->next) {
+    if (!attribute_name_is_valid(attr->name.data, attr->name.len))
+      continue;
+
+    if ((options & CMARK_OPT_UNSAFE) ||
+        is_safe_html_attr_name(attr->name.data, attr->name.len)) {
+      render_one_html_attr(html, attr->name.data, attr->name.len,
+                           attr->value.data, attr->value.len);
+    }
   }
-
-  render_safe_html_attrs(html, directive->attributes.data,
-                         directive->attributes.len);
 }
 
 static void html_render(cmark_syntax_extension *extension,
@@ -1269,13 +1658,30 @@ static void html_render(cmark_syntax_extension *extension,
 
 static void render_commonmark_attrs(cmark_renderer *renderer, cmark_node *node,
                                     node_directive *directive) {
+  directive_attribute *attr;
+  int first = 1;
+
   if (!directive->has_attributes)
     return;
 
   renderer->out(renderer, node, "{", false, LITERAL);
-  renderer->out(renderer, node,
-                cmark_chunk_to_cstr(renderer->mem, &directive->attributes),
-                false, LITERAL);
+  for (attr = directive->attributes; attr; attr = attr->next) {
+    cmark_strbuf value;
+
+    if (!first)
+      renderer->out(renderer, node, " ", false, LITERAL);
+    first = 0;
+
+    renderer->out(renderer, node,
+                  cmark_chunk_to_cstr(renderer->mem, &attr->name), false,
+                  LITERAL);
+    renderer->out(renderer, node, "=\"", false, LITERAL);
+    cmark_strbuf_init(renderer->mem, &value, 0);
+    append_escaped(&value, attr->value.data, attr->value.len);
+    renderer->out(renderer, node, cmark_strbuf_cstr(&value), false, LITERAL);
+    cmark_strbuf_free(&value);
+    renderer->out(renderer, node, "\"", false, LITERAL);
+  }
   renderer->out(renderer, node, "}", false, LITERAL);
 }
 
@@ -1396,9 +1802,10 @@ static const char *xml_attr(cmark_syntax_extension *extension,
   cmark_strbuf_putc(&attr, '"');
 
   if (directive->has_attributes) {
+    const char *json = render_attributes_json(node, directive);
     cmark_strbuf_puts(&attr, " attributes=\"");
-    append_escaped(&attr, directive->attributes.data,
-                   directive->attributes.len);
+    append_escaped(&attr, (const unsigned char *)json,
+                   (bufsize_t)strlen(json));
     cmark_strbuf_putc(&attr, '"');
   }
 

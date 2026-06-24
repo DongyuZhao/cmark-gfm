@@ -395,7 +395,8 @@ static void directive_extension_accessors(test_batch_runner *runner) {
   STR_EQ(runner, cmark_gfm_extensions_get_directive_name(directive), "-a",
          "directive name getter");
   STR_EQ(runner, cmark_gfm_extensions_get_directive_attributes(directive),
-         "id=\"old\" class=\"small\"", "directive attributes getter");
+         "{\"id\":\"old\",\"class\":\"small\"}",
+         "directive attributes getter returns JSON");
   INT_EQ(runner, cmark_gfm_extensions_set_directive_name(directive,
                                                         "next_name-2"),
          1, "set directive name succeeds");
@@ -409,15 +410,22 @@ static void directive_extension_accessors(test_batch_runner *runner) {
          "set directive name rejects empty name");
   STR_EQ(runner, cmark_gfm_extensions_get_directive_name(directive),
          "next_name-2", "rejected directive name leaves payload unchanged");
-  INT_EQ(runner, cmark_gfm_extensions_set_directive_attributes(
-                     directive, "data-x=\"1\""),
-         1, "set directive attributes succeeds");
+  INT_EQ(runner,
+         cmark_gfm_extensions_set_directive_attributes(
+             directive, "{\"data-x\":\"1\",\"class\":\"large\",\"id\":null}"),
+         1, "set directive attributes from JSON succeeds");
   STR_EQ(runner, cmark_gfm_extensions_get_directive_attributes(directive),
-         "data-x=\"1\"", "directive attributes setter updates payload");
+         "{\"class\":\"large\",\"data-x\":\"1\"}",
+         "directive attributes setter updates JSON payload");
+  INT_EQ(runner,
+         cmark_gfm_extensions_set_directive_attributes(directive,
+                                                       "data-x=\"1\""),
+         0, "set directive attributes rejects non-JSON payload");
   INT_EQ(runner, cmark_gfm_extensions_set_directive_name(paragraph, "ok"), 0,
          "set directive name rejects non-directive nodes");
   INT_EQ(runner,
-         cmark_gfm_extensions_set_directive_attributes(paragraph, "data-x=1"),
+         cmark_gfm_extensions_set_directive_attributes(paragraph,
+                                                       "{\"data-x\":\"1\"}"),
          0, "set directive attributes rejects non-directive nodes");
   OK(runner, cmark_gfm_extensions_get_directive_name(paragraph) == NULL,
      "get directive name rejects non-directive nodes");
@@ -431,6 +439,10 @@ static void directive_extension_accessors(test_batch_runner *runner) {
   STR_EQ(runner, commonmark, ":a{data-x=\"1\"}\n",
          "directive attribute-only commonmark renders attributes once");
   free(commonmark);
+  char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT);
+  OK(runner, strstr(xml, "attributes=\"{&quot;data-x&quot;:&quot;1&quot;}\"") != NULL,
+     "directive XML exposes attributes as JSON");
+  free(xml);
   cmark_node_free(doc);
 
   doc = parse_with_directive_extension(
