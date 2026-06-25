@@ -36,8 +36,11 @@ cmark.dSYM/*
 cmark
 .cache
 .build
+.gradle
+.cxx
 .vscode
 .DS_Store
+local.properties
 
 # Testing and benchmark
 alltests.md

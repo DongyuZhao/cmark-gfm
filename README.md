@@ -81,6 +81,58 @@ This repository can also be consumed directly with Swift Package Manager:
 Then add the `cmark-gfm` product to your target dependencies and `import cmark_gfm`
 from Swift.
 
+Android Gradle / Prefab
+-----------------------
+
+This repository can build an Android AAR that exposes `cmark-gfm` through
+Prefab. The AAR artifact is `cmark-gfm-android`, and the Prefab package/module
+name is `cmark_gfm`.
+
+To build the AAR locally:
+
+```sh
+gradle :android:assembleRelease
+```
+
+To publish it to your local Maven repository:
+
+```sh
+gradle :android:publishReleasePublicationToMavenLocal
+```
+
+An Android consumer can then enable Prefab and depend on the AAR:
+
+```kotlin
+repositories {
+    mavenLocal()
+}
+
+android {
+    buildFeatures {
+        prefab = true
+    }
+}
+
+dependencies {
+    implementation("com.github.github:cmark-gfm-android:0.29.0.gfm.13")
+}
+```
+
+From the consumer's CMake build:
+
+```cmake
+find_package(cmark_gfm REQUIRED CONFIG)
+target_link_libraries(your_native_target PRIVATE cmark_gfm::cmark_gfm)
+```
+
+Consumer C or C++ sources can include the public headers packaged in the AAR:
+
+```c
+#include "cmark-gfm.h"
+#include "cmark-gfm-extension_api.h"
+#include "cmark-gfm-core-extensions.h"
+```
+
 Installing
 ----------
 
