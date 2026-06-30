@@ -165,6 +165,51 @@ static size_t check_domain(uint8_t *data, size_t size, int allow_short) {
   }
 }
 
+static void clear_sourcepos(cmark_node *node) {
+  node->start_line = 0;
+  node->start_column = 0;
+  node->end_line = 0;
+  node->end_column = 0;
+}
+
+static void set_sourcepos_from_range(cmark_node *node, int source_start_line,
+                                     int source_start_column,
+                                     cmark_chunk *source, size_t start,
+                                     size_t len) {
+  clear_sourcepos(node);
+
+  if (source_start_line == 0 || len == 0)
+    return;
+
+  int line = source_start_line;
+  int column = source_start_column;
+  for (size_t i = 0; i < start; i++) {
+    if (source->data[i] == '\n') {
+      line++;
+      column = 1;
+    } else {
+      column++;
+    }
+  }
+
+  node->start_line = line;
+  node->start_column = column;
+
+  int end_line = line;
+  int end_column = column - 1;
+  for (size_t i = start; i < start + len; i++) {
+    if (source->data[i] == '\n') {
+      end_line++;
+      end_column = 0;
+    } else {
+      end_column++;
+    }
+  }
+
+  node->end_line = end_line;
+  node->end_column = end_column;
+}
+
 static cmark_node *www_match(cmark_parser *parser, cmark_node *parent,
                              cmark_inline_parser *inline_parser) {
   cmark_chunk *chunk = cmark_inline_parser_get_chunk(inline_parser);
@@ -214,7 +259,7 @@ static cmark_node *www_match(cmark_parser *parser, cmark_node *parent,
     node->end_line = text->end_line =
     cmark_inline_parser_get_line(inline_parser);
 
-  node->start_column = text->start_column = start - 1;
+  node->start_column = text->start_column = start;
   node->end_column = text->end_column = cmark_inline_parser_get_column(inline_parser) - 1;
 
   return node;
@@ -229,12 +274,14 @@ static cmark_node *url_match(cmark_parser *parser, cmark_node *parent,
   int max_rewind = cmark_inline_parser_get_offset(inline_parser);
   uint8_t *data = chunk->data + max_rewind;
   size_t size = chunk->len - max_rewind;
+  int start_column;
 
   if (size < 4 || data[1] != '/' || data[2] != '/')
     return 0;
 
   while (rewind < max_rewind && cmark_isalpha(data[-rewind - 1]))
     rewind++;
+  start_column = cmark_inline_parser_get_column(inline_parser) - rewind;
 
   if (!sd_autolink_issafe(data - rewind, size + rewind))
     return 0;
@@ -267,10 +314,10 @@ static cmark_node *url_match(cmark_parser *parser, cmark_node *parent,
   cmark_node *text = cmark_node_new_with_mem(CMARK_NODE_TEXT, parser->mem);
   text->as.literal = url;
   cmark_node_append_child(node, text);
-  
+
   node->start_line = text->start_line = node->end_line = text->end_line = cmark_inline_parser_get_line(inline_parser);
 
-  node->start_column = text->start_column = max_rewind - rewind;
+  node->start_column = text->start_column = start_column;
   node->end_column = text->end_column = cmark_inline_parser_get_column(inline_parser) - 1;
 
   return node;
@@ -321,6 +368,8 @@ static bool validate_protocol(const char protocol[], uint8_t *data, size_t rewin
 static void postprocess_text(cmark_parser *parser, cmark_node *text) {
   size_t start = 0;
   size_t offset = 0;
+  int source_start_line = text->start_line;
+  int source_start_column = text->start_column;
   // `text` is going to be split into a list of nodes containing shorter segments
   // of text, so we detach the memory buffer from text and use `cmark_chunk_dup` to
   // create references to it. Later, `cmark_chunk_to_cstr` is used to convert
@@ -417,12 +466,20 @@ found_at:
     }
 
     cmark_node *link_node = cmark_node_new_with_mem(CMARK_NODE_LINK, parser->mem);
+    size_t prefix_start = start;
+    size_t prefix_len = offset + max_rewind - rewind;
+    size_t link_start = start + offset + max_rewind - rewind;
+    size_t link_len = link_end + rewind;
+    size_t post_start = start + offset + max_rewind + link_end;
+    size_t post_len = remaining - offset - max_rewind - link_end;
     cmark_strbuf buf;
     cmark_strbuf_init(parser->mem, &buf, 10);
     if (auto_mailto)
       cmark_strbuf_puts(&buf, "mailto:");
     cmark_strbuf_put(&buf, data + start + offset + max_rewind - rewind, (bufsize_t)(link_end + rewind));
     link_node->as.link.url = cmark_chunk_buf_detach(&buf);
+    set_sourcepos_from_range(link_node, source_start_line, source_start_column,
+                             &detached_chunk, link_start, link_len);
 
     cmark_node *link_text = cmark_node_new_with_mem(CMARK_NODE_TEXT, parser->mem);
     cmark_chunk email = cmark_chunk_dup(
@@ -431,19 +488,26 @@ found_at:
       (bufsize_t)(link_end + rewind));
     cmark_chunk_to_cstr(parser->mem, &email);
     link_text->as.literal = email;
+    set_sourcepos_from_range(link_text, source_start_line, source_start_column,
+                             &detached_chunk, link_start, link_len);
     cmark_node_append_child(link_node, link_text);
 
     cmark_node_insert_after(text, link_node);
 
     cmark_node *post = cmark_node_new_with_mem(CMARK_NODE_TEXT, parser->mem);
     post->as.literal = cmark_chunk_dup(&detached_chunk,
-                                       (bufsize_t)(start + offset + max_rewind + link_end),
-                                       (bufsize_t)(remaining - offset - max_rewind - link_end));
+                                       (bufsize_t)post_start,
+                                       (bufsize_t)post_len);
+    set_sourcepos_from_range(post, source_start_line, source_start_column,
+                             &detached_chunk, post_start, post_len);
 
     cmark_node_insert_after(link_node, post);
 
-    text->as.literal = cmark_chunk_dup(&detached_chunk, (bufsize_t)start, (bufsize_t)(offset + max_rewind - rewind));
+    text->as.literal = cmark_chunk_dup(&detached_chunk, (bufsize_t)prefix_start,
+                                       (bufsize_t)prefix_len);
     cmark_chunk_to_cstr(parser->mem, &text->as.literal);
+    set_sourcepos_from_range(text, source_start_line, source_start_column,
+                             &detached_chunk, prefix_start, prefix_len);
 
     text = post;
     start += offset + max_rewind + link_end;

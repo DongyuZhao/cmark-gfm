@@ -26,6 +26,7 @@ static void test_md_to_html(test_batch_runner *runner, const char *markdown,
 
 static cmark_node *parse_with_formula_extension(const char *markdown);
 static cmark_node *parse_with_directive_extension(const char *markdown);
+static cmark_node *parse_with_autolink_extension(const char *markdown);
 
 static void test_content(test_batch_runner *runner, cmark_node_type type,
                          unsigned int *allowed_content);
@@ -282,6 +283,23 @@ static cmark_node *parse_with_directive_extension(const char *markdown) {
 
   if (directive) {
     cmark_parser_attach_syntax_extension(parser, directive);
+  }
+
+  cmark_parser_feed(parser, markdown, strlen(markdown));
+  cmark_node *doc = cmark_parser_finish(parser);
+  cmark_parser_free(parser);
+
+  return doc;
+}
+
+static cmark_node *parse_with_autolink_extension(const char *markdown) {
+  cmark_gfm_core_extensions_ensure_registered();
+
+  cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
+  cmark_syntax_extension *autolink = cmark_find_syntax_extension("autolink");
+
+  if (autolink) {
+    cmark_parser_attach_syntax_extension(parser, autolink);
   }
 
   cmark_parser_feed(parser, markdown, strlen(markdown));
@@ -1425,6 +1443,91 @@ static void ref_source_pos(test_batch_runner *runner) {
   cmark_node_free(doc);
 }
 
+static void autolink_source_pos(test_batch_runner *runner) {
+  {
+    static const char markdown[] = "See www.example.com.\n";
+
+    cmark_node *doc = parse_with_autolink_extension(markdown);
+    char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+    STR_EQ(runner, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                        "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n"
+                        "<document sourcepos=\"1:1-1:20\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
+                        "  <paragraph sourcepos=\"1:1-1:20\">\n"
+                        "    <text sourcepos=\"1:1-1:4\" xml:space=\"preserve\">See </text>\n"
+                        "    <link sourcepos=\"1:5-1:19\" destination=\"http://www.example.com\" title=\"\">\n"
+                        "      <text sourcepos=\"1:5-1:19\" xml:space=\"preserve\">www.example.com</text>\n"
+                        "    </link>\n"
+                        "    <text sourcepos=\"1:20-1:20\" xml:space=\"preserve\">.</text>\n"
+                        "  </paragraph>\n"
+                        "</document>\n",
+                        "www autolink sourcepos are as expected");
+    free(xml);
+    cmark_node_free(doc);
+  }
+
+  {
+    static const char markdown[] = "See http://example.com.\n";
+
+    cmark_node *doc = parse_with_autolink_extension(markdown);
+    char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+    STR_EQ(runner, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                        "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n"
+                        "<document sourcepos=\"1:1-1:23\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
+                        "  <paragraph sourcepos=\"1:1-1:23\">\n"
+                        "    <text sourcepos=\"1:1-1:4\" xml:space=\"preserve\">See </text>\n"
+                        "    <link sourcepos=\"1:5-1:22\" destination=\"http://example.com\" title=\"\">\n"
+                        "      <text sourcepos=\"1:5-1:22\" xml:space=\"preserve\">http://example.com</text>\n"
+                        "    </link>\n"
+                        "    <text sourcepos=\"1:23-1:23\" xml:space=\"preserve\">.</text>\n"
+                        "  </paragraph>\n"
+                        "</document>\n",
+                        "scheme autolink sourcepos are as expected");
+    free(xml);
+    cmark_node_free(doc);
+  }
+
+  {
+    static const char markdown[] = "http://example.com\n";
+
+    cmark_node *doc = parse_with_autolink_extension(markdown);
+    char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+    STR_EQ(runner, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                        "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n"
+                        "<document sourcepos=\"1:1-1:18\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
+                        "  <paragraph sourcepos=\"1:1-1:18\">\n"
+                        "    <text xml:space=\"preserve\"></text>\n"
+                        "    <link sourcepos=\"1:1-1:18\" destination=\"http://example.com\" title=\"\">\n"
+                        "      <text sourcepos=\"1:1-1:18\" xml:space=\"preserve\">http://example.com</text>\n"
+                        "    </link>\n"
+                        "  </paragraph>\n"
+                        "</document>\n",
+                        "scheme autolink at column one sourcepos are as expected");
+    free(xml);
+    cmark_node_free(doc);
+  }
+
+  {
+    static const char markdown[] = "Mail user@example.com now.\n";
+
+    cmark_node *doc = parse_with_autolink_extension(markdown);
+    char *xml = cmark_render_xml(doc, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+    STR_EQ(runner, xml, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                        "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n"
+                        "<document sourcepos=\"1:1-1:26\" xmlns=\"http://commonmark.org/xml/1.0\">\n"
+                        "  <paragraph sourcepos=\"1:1-1:26\">\n"
+                        "    <text sourcepos=\"1:1-1:5\" xml:space=\"preserve\">Mail </text>\n"
+                        "    <link sourcepos=\"1:6-1:21\" destination=\"mailto:user@example.com\" title=\"\">\n"
+                        "      <text sourcepos=\"1:6-1:21\" xml:space=\"preserve\">user@example.com</text>\n"
+                        "    </link>\n"
+                        "    <text sourcepos=\"1:22-1:26\" xml:space=\"preserve\"> now.</text>\n"
+                        "  </paragraph>\n"
+                        "</document>\n",
+                        "email autolink sourcepos are as expected");
+    free(xml);
+    cmark_node_free(doc);
+  }
+}
+
 int main() {
   int retval;
   test_batch_runner *runner = test_batch_runner_new();
@@ -1459,6 +1562,7 @@ int main() {
   source_pos(runner);
   source_pos_inlines(runner);
   ref_source_pos(runner);
+  autolink_source_pos(runner);
 
   test_print_summary(runner);
   retval = test_ok(runner) ? 0 : 1;

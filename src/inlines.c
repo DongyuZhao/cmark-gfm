@@ -1853,18 +1853,44 @@ int cmark_inline_parser_in_bracket(cmark_inline_parser *parser, int image) {
   }
 }
 
+static void S_update_text_sourcepos(cmark_node *node) {
+  if (node->start_line == 0)
+    return;
+
+  if (node->as.literal.len == 0) {
+    node->start_line = 0;
+    node->start_column = 0;
+    node->end_line = 0;
+    node->end_column = 0;
+    return;
+  }
+
+  int end_line = node->start_line;
+  int end_column = node->start_column - 1;
+  for (bufsize_t i = 0; i < node->as.literal.len; i++) {
+    if (node->as.literal.data[i] == '\n') {
+      end_line++;
+      end_column = 0;
+    } else {
+      end_column++;
+    }
+  }
+
+  node->end_line = end_line;
+  node->end_column = end_column;
+}
+
 void cmark_node_unput(cmark_node *node, int n) {
-	node = node->last_child;
-	while (n > 0 && node && node->type == CMARK_NODE_TEXT) {
-		if (node->as.literal.len < n) {
-			n -= node->as.literal.len;
-			node->as.literal.len = 0;
-		} else {
-			node->as.literal.len -= n;
-			n = 0;
-		}
-		node = node->prev;
-	}
+  node = node->last_child;
+  while (n > 0 && node && node->type == CMARK_NODE_TEXT) {
+    bufsize_t remove = node->as.literal.len < (bufsize_t)n
+                           ? node->as.literal.len
+                           : (bufsize_t)n;
+    node->as.literal.len -= remove;
+    n -= (int)remove;
+    S_update_text_sourcepos(node);
+    node = node->prev;
+  }
 }
 
 delimiter *cmark_inline_parser_get_last_delimiter(cmark_inline_parser *parser) {
