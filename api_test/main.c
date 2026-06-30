@@ -268,6 +268,11 @@ static cmark_node *parse_with_formula_extension(const char *markdown) {
   return parse_with_formula_extension_options(markdown, CMARK_OPT_DEFAULT);
 }
 
+static cmark_node *parse_with_dollar_formula_extension(const char *markdown) {
+  return parse_with_formula_extension_options(
+      markdown, CMARK_OPT_DEFAULT | CMARK_OPT_DOLLAR_FORMULA_DELIMITERS);
+}
+
 static cmark_node *parse_with_directive_extension(const char *markdown) {
   cmark_gfm_core_extensions_ensure_registered();
 
@@ -289,6 +294,16 @@ static cmark_node *parse_with_directive_extension(const char *markdown) {
 static void formula_extension_accessors(test_batch_runner *runner) {
   cmark_node *doc = parse_with_formula_extension("Inline $x+y$ end.\n");
   cmark_node *paragraph = cmark_node_first_child(doc);
+  cmark_node *text = cmark_node_first_child(paragraph);
+
+  INT_EQ(runner, cmark_node_get_type(text), CMARK_NODE_TEXT,
+         "dollar formula delimiters require opt-in");
+  STR_EQ(runner, cmark_node_get_literal(text), "Inline $x+y$ end.",
+         "dollar formula delimiter text remains literal without opt-in");
+  cmark_node_free(doc);
+
+  doc = parse_with_dollar_formula_extension("Inline $x+y$ end.\n");
+  paragraph = cmark_node_first_child(doc);
   cmark_node *formula = cmark_node_next(cmark_node_first_child(paragraph));
 
   STR_EQ(runner, cmark_node_get_type_string(formula), "formula_inline",
@@ -317,7 +332,7 @@ static void formula_extension_accessors(test_batch_runner *runner) {
          CMARK_FORMULA_MODE_NONE, "get formula mode rejects non-formula nodes");
   cmark_node_free(doc);
 
-  doc = parse_with_formula_extension("$$x+y$$\n");
+  doc = parse_with_dollar_formula_extension("$$x+y$$\n");
   formula = cmark_node_first_child(doc);
   STR_EQ(runner, cmark_node_get_type_string(formula), "formula_block",
          "standalone formula block type string");
@@ -327,7 +342,7 @@ static void formula_extension_accessors(test_batch_runner *runner) {
          CMARK_FORMULA_MODE_STANDALONE, "formula block mode is standalone");
   cmark_node_free(doc);
 
-  doc = parse_with_formula_extension("Display $$a+b$$ end.\n");
+  doc = parse_with_dollar_formula_extension("Display $$a+b$$ end.\n");
   paragraph = cmark_node_first_child(doc);
   formula = cmark_node_next(cmark_node_first_child(paragraph));
   STR_EQ(runner, cmark_node_get_type_string(formula), "formula_inline",

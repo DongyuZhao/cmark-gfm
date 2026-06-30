@@ -1047,25 +1047,37 @@ separate attribute.
 .nf
 \fC
 .RS 0n
-#define CMARK_OPT_LATEX_MATH_DELIMITERS (1 << 18)
+#define CMARK_OPT_DOLLAR_FORMULA_DELIMITERS (1 << 24)
 .RE
 \f[]
 .fi
 
 .PP
-Enable LaTeX math delimiters: \e( … \e) and \e[ … \e].
+Enable dollar formula delimiters: $...$ and $$...$$.
 
 .PP
 .nf
 \fC
 .RS 0n
-#define CMARK_OPT_MS_MATH_DELIMITERS (1 << 19)
+#define CMARK_OPT_LATEX_FORMULA_DELIMITERS (1 << 18)
 .RE
 \f[]
 .fi
 
 .PP
-Enable MS math compatibility delimiters: ( … ) and [ … ].
+Enable LaTeX formula delimiters: \e( ... \e) and \e[ ... \e].
+
+.PP
+.nf
+\fC
+.RS 0n
+#define CMARK_OPT_MS_FORMULA_DELIMITERS (1 << 19)
+.RE
+\f[]
+.fi
+
+.PP
+Enable MS formula compatibility delimiters: ( ... ) and [ ... ].
 
 .PP
 .nf
@@ -1133,4 +1145,3 @@ macro CMARK_VERSION_STRING for compile time checks.
 AUTHORS
 .PP
 John MacFarlane, Vicent Marti, Kārlis Gaņģis, Nick Wellnhofer.
-

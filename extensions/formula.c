@@ -174,7 +174,8 @@ static int has_only_spaces_until_line_end(const unsigned char *data,
 
 static int scan_formula_block_open(const unsigned char *data, bufsize_t len,
                                    bufsize_t pos, int latex_formula_delimiters,
-                                   int ms_formula_delimiters) {
+                                   int ms_formula_delimiters,
+                                   int dollar_formula_delimiters) {
   if (latex_formula_delimiters && pos + 3 <= len && data[pos] == '\\' &&
       data[pos + 1] == '\\' && data[pos + 2] == '[' &&
       has_only_spaces_until_line_end(data, len, pos + 3))
@@ -185,7 +186,8 @@ static int scan_formula_block_open(const unsigned char *data, bufsize_t len,
       has_only_spaces_until_line_end(data, len, pos + 2))
     return FORMULA_BLOCK_DELIM_MS_BACKSLASH;
 
-  if (pos + 2 <= len && data[pos] == '$' && data[pos + 1] == '$' &&
+  if (dollar_formula_delimiters && pos + 2 <= len && data[pos] == '$' &&
+      data[pos + 1] == '$' &&
       has_only_spaces_until_line_end(data, len, pos + 2))
     return FORMULA_BLOCK_DELIM_DOLLAR;
 
@@ -228,7 +230,9 @@ static cmark_node *try_opening_formula_block(cmark_syntax_extension *extension,
   block_delim =
       scan_formula_block_open(input, (bufsize_t)len, (bufsize_t)first_nonspace,
                               parser->options & CMARK_OPT_LATEX_FORMULA_DELIMITERS,
-                              parser->options & CMARK_OPT_MS_FORMULA_DELIMITERS);
+                              parser->options & CMARK_OPT_MS_FORMULA_DELIMITERS,
+                              parser->options &
+                                  CMARK_OPT_DOLLAR_FORMULA_DELIMITERS);
   if (block_delim == FORMULA_BLOCK_DELIM_NONE)
     return NULL;
 
@@ -298,9 +302,21 @@ static cmark_node *match_formula_delimiter(cmark_parser *parser,
   if (!node)
     return NULL;
 
-  cmark_inline_parser_push_delimiter(inline_parser, delim_char, can_open,
-                                     can_close, node);
+  if (can_open || can_close)
+    cmark_inline_parser_push_delimiter(inline_parser, delim_char, can_open,
+                                       can_close, node);
   return node;
+}
+
+static int dollar_inline_can_open(cmark_chunk *chunk, bufsize_t offset) {
+  return offset + 1 < chunk->len &&
+         !cmark_isspace((char)chunk->data[offset + 1]);
+}
+
+static int dollar_inline_can_close(cmark_chunk *chunk, bufsize_t offset) {
+  return offset > 0 && !cmark_isspace((char)chunk->data[offset - 1]) &&
+         (offset + 1 >= chunk->len ||
+          !cmark_isdigit((char)chunk->data[offset + 1]));
 }
 
 static bufsize_t scan_backslash_close(const unsigned char *data, bufsize_t len,
@@ -331,6 +347,10 @@ static int ms_formula_delimiters_enabled(cmark_parser *parser) {
   return parser->options & CMARK_OPT_MS_FORMULA_DELIMITERS;
 }
 
+static int dollar_formula_delimiters_enabled(cmark_parser *parser) {
+  return parser->options & CMARK_OPT_DOLLAR_FORMULA_DELIMITERS;
+}
+
 static cmark_node *match(cmark_syntax_extension *extension,
                          cmark_parser *parser, cmark_node *parent,
                          unsigned char character,
@@ -342,13 +362,20 @@ static cmark_node *match(cmark_syntax_extension *extension,
   bufsize_t closer_len;
 
   if (character == '$') {
+    if (!dollar_formula_delimiters_enabled(parser))
+      return NULL;
+
     if (scan_formula_dollar_display_open(chunk->data, len, offset))
       return match_formula_delimiter(parser, inline_parser,
                                   FORMULA_DELIM_DOLLAR_DISPLAY, 2, 1, 1);
 
     if (scan_formula_dollar_inline_open(chunk->data, len, offset))
       return match_formula_delimiter(parser, inline_parser,
-                                  FORMULA_DELIM_DOLLAR_INLINE, 1, 1, 1);
+                                  FORMULA_DELIM_DOLLAR_INLINE, 1,
+                                  dollar_inline_can_open(chunk,
+                                                         (bufsize_t)offset),
+                                  dollar_inline_can_close(chunk,
+                                                          (bufsize_t)offset));
   } else if (character == '\\') {
     if (latex_formula_delimiters_enabled(parser)) {
       opener_len =

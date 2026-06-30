@@ -1,0 +1,56 @@
+---
+title: Formula option gate extension test
+author: Dongyu Zhao
+version: 0.1
+date: '2026-06-30'
+license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
+...
+
+## Formula option gates
+
+These examples attach the formula extension without enabling dollar formula
+delimiters. Dollar-delimited syntax remains ordinary Markdown.
+
+```````````````````````````````` example
+Inline $x+y$ end.
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">Inline $x+y$ end.</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+```````````````````````````````` example
+$$
+x+y
+$$
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <paragraph>
+    <text xml:space="preserve">$$</text>
+    <softbreak />
+    <text xml:space="preserve">x+y</text>
+    <softbreak />
+    <text xml:space="preserve">$$</text>
+  </paragraph>
+</document>
+````````````````````````````````
+
+Formula fenced-code blocks remain enabled by the formula extension.
+
+```````````````````````````````` example
+```formula
+x+y
+```
+.
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE document SYSTEM "CommonMark.dtd">
+<document xmlns="http://commonmark.org/xml/1.0">
+  <formula_block />
+</document>
+````````````````````````````````

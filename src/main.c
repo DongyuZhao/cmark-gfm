@@ -64,6 +64,8 @@ void print_usage() {
          "                                  instead of align attributes.\n");
   printf("  --full-info-string              Include remainder of code block info\n"
          "                                  string in a separate attribute.\n");
+  printf("  --dollar-formula-delimiters     Enable formula $...$ and $$...$$\n"
+         "                                  delimiters when formula is enabled.\n");
   printf("  --latex-formula-delimiters         Enable LaTeX formula \\\\(...\\\\) and\n"
          "                                  \\\\[...\\\\] delimiters when formula is enabled.\n");
   printf("  --ms-formula-delimiters            Enable MS formula \\(...\\) and \\[...\\]\n"
@@ -218,6 +220,8 @@ int main(int argc, char *argv[]) {
       goto success;
     } else if (strcmp(argv[i], "--full-info-string") == 0) {
       options |= CMARK_OPT_FULL_INFO_STRING;
+    } else if (strcmp(argv[i], "--dollar-formula-delimiters") == 0) {
+      options |= CMARK_OPT_DOLLAR_FORMULA_DELIMITERS;
     } else if (strcmp(argv[i], "--latex-formula-delimiters") == 0) {
       options |= CMARK_OPT_LATEX_FORMULA_DELIMITERS;
     } else if (strcmp(argv[i], "--ms-formula-delimiters") == 0) {

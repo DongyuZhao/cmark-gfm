@@ -768,6 +768,10 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_FULL_INFO_STRING (1 << 16)
 
+/** Enable dollar formula delimiters: $...$ and $$...$$.
+ */
+#define CMARK_OPT_DOLLAR_FORMULA_DELIMITERS (1 << 24)
+
 /** Enable LaTeX formula delimiters: \\( ... \\) and \\[ ... \\].
  */
 #define CMARK_OPT_LATEX_FORMULA_DELIMITERS (1 << 18)

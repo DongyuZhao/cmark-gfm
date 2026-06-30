@@ -9,8 +9,8 @@ license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
 ## LaTeX formula compatibility
 
 These examples define the opt-in LaTeX delimiter surface supported by
-the `formula` extension when `--latex-formula-delimiters` is enabled, in addition to
-GitHub's documented `$` and `$$` forms.
+the `formula` extension when `--latex-formula-delimiters` is enabled, alongside
+the dollar delimiter surface enabled by `--dollar-formula-delimiters`.
 
 ```````````````````````````````` example
 Inline \\(x+y\\) end.

@@ -78,7 +78,16 @@ IF (PYTHONINTERP_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-formula-github.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --dollar-formula-delimiters"
+    "--extensions" "formula"
+    )
+
+  add_test(formula_option_gates_executable
+    ${PYTHON_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
+    "--no-normalize"
+    "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-formula-option-gates.txt"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm -t xml"
     "--extensions" "formula"
     )
 
@@ -87,7 +96,7 @@ IF (PYTHONINTERP_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-formula-latex.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-formula-delimiters"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --dollar-formula-delimiters --latex-formula-delimiters"
     "--extensions" "formula"
     )
 
@@ -105,7 +114,7 @@ IF (PYTHONINTERP_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/spec_tests.py"
     "--no-normalize"
     "--spec" "${CMAKE_CURRENT_SOURCE_DIR}/extensions-formula-conflicts.txt"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-formula-delimiters"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --dollar-formula-delimiters --latex-formula-delimiters"
     "--extensions" "formula"
     )
 
@@ -120,7 +129,7 @@ IF (PYTHONINTERP_FOUND)
   add_test(inline_delimiter_stack_tests_executable
     ${PYTHON_EXECUTABLE}
     "${CMAKE_CURRENT_SOURCE_DIR}/inline_delimiter_stack_tests.py"
-    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --latex-formula-delimiters --ms-copilot-annotation --ms-copilot-citation"
+    "--program" "${CMAKE_CURRENT_BINARY_DIR}/../src/cmark-gfm --dollar-formula-delimiters --latex-formula-delimiters --ms-copilot-annotation --ms-copilot-citation"
     )
 
   add_test(ms_copilot_accordion_extension_executable

@@ -8,9 +8,10 @@ license: '[CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/)'
 
 ## GitHub formula compatibility
 
-These examples define the GitHub Docs formula-expression surface supported
-by the `formula` extension. The HTML wrapper is cmark-gfm's stable representation;
-the wrapped delimiter/body text is the payload handed to LaTeX/KaTeX.
+These examples define the GitHub Docs dollar formula-expression surface
+supported by the `formula` extension when `--dollar-formula-delimiters` is
+enabled. The HTML wrapper is cmark-gfm's stable representation; the wrapped
+delimiter/body text is the payload handed to LaTeX/KaTeX.
 
 ```````````````````````````````` example
 Inline $x+y$ end.
@@ -31,6 +32,30 @@ Inline $`x+y`$ end.
 Escaped dollar $`\sqrt{\$4}`$ end.
 .
 <p>Escaped dollar <span class="formula formula-inline">\(\sqrt{\$4}\)</span> end.</p>
+````````````````````````````````
+
+Dollar formula delimiters do not open before whitespace.
+
+```````````````````````````````` example
+Inline $ x$ end.
+.
+<p>Inline $ x$ end.</p>
+````````````````````````````````
+
+Dollar formula delimiters do not close after whitespace.
+
+```````````````````````````````` example
+Inline $x $ end.
+.
+<p>Inline $x $ end.</p>
+````````````````````````````````
+
+Dollar formula delimiters do not close before digits.
+
+```````````````````````````````` example
+Value $300B and ~$100B.
+.
+<p>Value $300B and ~$100B.</p>
 ````````````````````````````````
 
 ```````````````````````````````` example
