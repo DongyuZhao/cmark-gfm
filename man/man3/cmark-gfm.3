@@ -996,6 +996,18 @@ Be liberal in interpreting inline HTML tags.
 .nf
 \fC
 .RS 0n
+#define CMARK_OPT_STRIP_HTML_COMMENTS (1 << 25)
+.RE
+\f[]
+.fi
+
+.PP
+Strip HTML comment nodes from the parsed AST.
+
+.PP
+.nf
+\fC
+.RS 0n
 #define CMARK_OPT_FOOTNOTES (1 << 13)
 .RE
 \f[]

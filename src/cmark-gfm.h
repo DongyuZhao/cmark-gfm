@@ -750,6 +750,10 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_LIBERAL_HTML_TAG (1 << 12)
 
+/** Strip HTML comment nodes from the parsed AST.
+ */
+#define CMARK_OPT_STRIP_HTML_COMMENTS (1 << 25)
+
 /** Parse footnotes.
  */
 #define CMARK_OPT_FOOTNOTES (1 << 13)

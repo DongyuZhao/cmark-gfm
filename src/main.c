@@ -56,6 +56,7 @@ void print_usage() {
   printf("  --smart           Use smart punctuation\n");
   printf("  --validate-utf8   Replace UTF-8 invalid sequences with U+FFFD\n");
   printf("  --github-pre-lang Use GitHub-style <pre lang> for code blocks\n");
+  printf("  --strip-html-comments Strip HTML comment nodes from the parsed AST\n");
   printf("  --extension, -e EXTENSION_NAME  Specify an extension name to use\n");
   printf("  --list-extensions               List available extensions and quit\n");
   printf("  --strikethrough-double-tilde    Only parse strikethrough (if enabled)\n");
@@ -248,6 +249,8 @@ int main(int argc, char *argv[]) {
       options |= CMARK_OPT_SMART;
     } else if (strcmp(argv[i], "--github-pre-lang") == 0) {
       options |= CMARK_OPT_GITHUB_PRE_LANG;
+    } else if (strcmp(argv[i], "--strip-html-comments") == 0) {
+      options |= CMARK_OPT_STRIP_HTML_COMMENTS;
     } else if (strcmp(argv[i], "--unsafe") == 0) {
       options |= CMARK_OPT_UNSAFE;
     } else if (strcmp(argv[i], "--validate-utf8") == 0) {

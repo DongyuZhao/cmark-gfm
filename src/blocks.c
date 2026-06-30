@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <limits.h>
+#include <string.h>
 
 #include "cmark_ctype.h"
 #include "syntax_extension.h"
@@ -40,6 +41,49 @@
 #endif
 
 #define peek_at(i, n) (i)->data[n]
+
+static bool S_html_literal_starts_with_comment(cmark_node *node) {
+  cmark_chunk *literal;
+  bufsize_t offset = 0;
+
+  if (node->type != CMARK_NODE_HTML_BLOCK &&
+      node->type != CMARK_NODE_HTML_INLINE) {
+    return false;
+  }
+
+  literal = &node->as.literal;
+
+  if (node->type == CMARK_NODE_HTML_BLOCK) {
+    while (offset < literal->len &&
+           (literal->data[offset] == ' ' || literal->data[offset] == '\t')) {
+      offset++;
+    }
+  }
+
+  return literal->len - offset >= 4 &&
+         memcmp(literal->data + offset, "<!--", 4) == 0;
+}
+
+static void S_strip_html_comments(cmark_node *root) {
+  bool stripped = false;
+  cmark_iter *iter = cmark_iter_new(root);
+  cmark_event_type ev_type;
+
+  while ((ev_type = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+    cmark_node *node = cmark_iter_get_node(iter);
+    if (ev_type == CMARK_EVENT_ENTER &&
+        S_html_literal_starts_with_comment(node)) {
+      cmark_node_free(node);
+      stripped = true;
+    }
+  }
+
+  cmark_iter_free(iter);
+
+  if (stripped) {
+    cmark_consolidate_text_nodes(root);
+  }
+}
 
 static bool S_last_line_blank(const cmark_node *node) {
   return (node->flags & CMARK_NODE__LAST_LINE_BLANK) != 0;
@@ -1564,6 +1608,10 @@ cmark_node *cmark_parser_finish(cmark_parser *parser) {
       if (processed)
         parser->root = processed;
     }
+  }
+
+  if (parser->options & CMARK_OPT_STRIP_HTML_COMMENTS) {
+    S_strip_html_comments(parser->root);
   }
 
   res = parser->root;

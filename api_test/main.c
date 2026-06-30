@@ -1155,6 +1155,66 @@ static void test_safe(test_batch_runner *runner) {
   free(html);
 }
 
+static int count_html_comment_nodes(cmark_node *root) {
+  int count = 0;
+  cmark_iter *iter = cmark_iter_new(root);
+  cmark_event_type ev_type;
+
+  while ((ev_type = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+    cmark_node *node = cmark_iter_get_node(iter);
+    if (ev_type == CMARK_EVENT_ENTER &&
+        (node->type == CMARK_NODE_HTML_BLOCK ||
+         node->type == CMARK_NODE_HTML_INLINE)) {
+      const char *literal = cmark_node_get_literal(node);
+      if (literal && strncmp(literal, "<!--", 4) == 0) {
+        count++;
+      }
+    }
+  }
+
+  cmark_iter_free(iter);
+  return count;
+}
+
+static void strip_html_comments(test_batch_runner *runner) {
+  static const char markdown[] = "before <!-- hidden --> after <br>\n"
+                                 "\n"
+                                 "<!-- block\n"
+                                 "hidden -->\n"
+                                 "\n"
+                                 "<div>raw</div>\n";
+
+  cmark_node *doc =
+      cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_DEFAULT);
+  INT_EQ(runner, count_html_comment_nodes(doc), 2,
+         "default parse preserves HTML comment nodes");
+  cmark_node_free(doc);
+
+  doc = cmark_parse_document(markdown, sizeof(markdown) - 1,
+                             CMARK_OPT_STRIP_HTML_COMMENTS);
+  INT_EQ(runner, count_html_comment_nodes(doc), 0,
+         "strip-html-comments option removes HTML comment nodes");
+
+  cmark_node *paragraph = cmark_node_first_child(doc);
+  cmark_node *text = cmark_node_first_child(paragraph);
+  STR_EQ(runner, cmark_node_get_literal(text), "before  after ",
+         "strip-html-comments preserves surrounding text");
+
+  cmark_node *inline_html = cmark_node_next(text);
+  INT_EQ(runner, cmark_node_get_type(inline_html), CMARK_NODE_HTML_INLINE,
+         "strip-html-comments preserves non-comment inline HTML");
+  STR_EQ(runner, cmark_node_get_literal(inline_html), "<br>",
+         "strip-html-comments keeps inline HTML literal");
+
+  cmark_node *block_html = cmark_node_next(paragraph);
+  INT_EQ(runner, cmark_node_get_type(block_html), CMARK_NODE_HTML_BLOCK,
+         "strip-html-comments preserves non-comment HTML blocks");
+  STR_EQ(runner, cmark_node_get_literal(block_html), "<div>raw</div>\n",
+         "strip-html-comments keeps block HTML literal");
+
+  cmark_node_free(doc);
+}
+
 static void test_md_to_html(test_batch_runner *runner, const char *markdown,
                             const char *expected_html, const char *msg) {
   char *html = cmark_markdown_to_html(markdown, strlen(markdown),
@@ -1393,6 +1453,7 @@ int main() {
   numeric_entities(runner);
   test_cplusplus(runner);
   test_safe(runner);
+  strip_html_comments(runner);
   test_feed_across_line_ending(runner);
   test_pathological_regressions(runner);
   source_pos(runner);
