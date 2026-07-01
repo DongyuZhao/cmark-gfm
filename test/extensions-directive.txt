@@ -46,6 +46,27 @@ Text directives can appear inside link text.
 <p><a href="/roadmap">Go <span data-directive="badge">beta</span></a></p>
 ````````````````````````````````
 
+Text directives can appear inside table cells.
+
+```````````````````````````````` example table
+| status |
+| --- |
+| :badge[beta] |
+.
+<table>
+<thead>
+<tr>
+<th>status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span data-directive="badge">beta</span></td>
+</tr>
+</tbody>
+</table>
+````````````````````````````````
+
 A text directive with only a name is not recognized when it is followed by a
 colon, so gemoji-compatible text remains text.
 

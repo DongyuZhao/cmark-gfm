@@ -19,6 +19,27 @@ Inline $x+y$ end.
 <p>Inline <span class="formula formula-inline">\(x+y\)</span> end.</p>
 ````````````````````````````````
 
+Formula expressions parse as inline content inside table cells.
+
+```````````````````````````````` example table
+| expr |
+| --- |
+| $x+y$ |
+.
+<table>
+<thead>
+<tr>
+<th>expr</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="formula formula-inline">\(x+y\)</span></td>
+</tr>
+</tbody>
+</table>
+````````````````````````````````
+
 GitHub's `$`...`$` form treats the backticks as formula delimiters, not as body
 bytes.
 
