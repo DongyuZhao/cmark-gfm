@@ -615,6 +615,18 @@ int cmark_node_set_fence_info(cmark_node *node, const char *info) {
   }
 }
 
+int cmark_node_get_fence_closed(cmark_node *node) {
+  if (node == NULL) {
+    return 0;
+  }
+
+  if (node->type == CMARK_NODE_CODE_BLOCK) {
+    return node->as.code.fenced && node->as.code.fence_closed;
+  } else {
+    return 0;
+  }
+}
+
 int cmark_node_get_fenced(cmark_node *node, int *length, int *offset, char *character) {
   if (node == NULL) {
     return 0;

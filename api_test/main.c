@@ -124,10 +124,23 @@ static void accessors(test_batch_runner *runner) {
   STR_EQ(runner, cmark_node_get_literal(fenced), "fenced\n",
          "get_literal fenced code");
   STR_EQ(runner, cmark_node_get_fence_info(fenced), "lang", "get_fence_info");
+  INT_EQ(runner, cmark_node_get_fence_closed(fenced), 1,
+         "get_fence_closed closed fenced code");
 
   cmark_node *code = cmark_node_next(fenced);
   STR_EQ(runner, cmark_node_get_literal(code), "code\n",
          "get_literal indented code");
+  INT_EQ(runner, cmark_node_get_fence_closed(code), 0,
+         "get_fence_closed indented code");
+
+  static const char unclosed_markdown[] = "``` lang\n"
+                                          "unclosed\n";
+  cmark_node *unclosed_doc = cmark_parse_document(
+      unclosed_markdown, sizeof(unclosed_markdown) - 1, CMARK_OPT_DEFAULT);
+  cmark_node *unclosed = cmark_node_first_child(unclosed_doc);
+  INT_EQ(runner, cmark_node_get_fence_closed(unclosed), 0,
+         "get_fence_closed unclosed fenced code");
+  cmark_node_free(unclosed_doc);
 
   cmark_node *html = cmark_node_next(code);
   STR_EQ(runner, cmark_node_get_literal(html), "<div>html</div>\n",
@@ -217,6 +230,8 @@ static void accessors(test_batch_runner *runner) {
   OK(runner, cmark_node_get_literal(ordered_list) == NULL, "get_literal error");
   OK(runner, cmark_node_get_fence_info(paragraph) == NULL,
      "get_fence_info error");
+  INT_EQ(runner, cmark_node_get_fence_closed(paragraph), 0,
+         "get_fence_closed error");
   OK(runner, cmark_node_get_url(html) == NULL, "get_url error");
   OK(runner, cmark_node_get_title(heading) == NULL, "get_title error");
 

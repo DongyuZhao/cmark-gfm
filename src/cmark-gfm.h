@@ -433,6 +433,10 @@ CMARK_GFM_EXPORT const char *cmark_node_get_fence_info(cmark_node *node);
  */
 CMARK_GFM_EXPORT int cmark_node_set_fence_info(cmark_node *node, const char *info);
 
+/** Returns 1 if a fenced code block has a closing fence, 0 otherwise.
+ */
+CMARK_GFM_EXPORT int cmark_node_get_fence_closed(cmark_node *node);
+
 /** Sets code blocks fencing details
  */
 CMARK_GFM_EXPORT int cmark_node_set_fenced(cmark_node * node, int fenced,

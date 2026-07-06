@@ -1039,6 +1039,7 @@ static bool parse_code_block_prefix(cmark_parser *parser, cmark_chunk *input,
       // closing fence - and since we're at
       // the end of a line, we can stop processing it:
       *should_continue = false;
+      container->as.code.fence_closed = true;
       S_advance_offset(parser, input, matched, false);
       parser->current = finalize(parser, container);
     } else {
@@ -1235,6 +1236,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       (*container)->as.code.fence_length = (matched > 255) ? 255 : (uint8_t)matched;
       (*container)->as.code.fence_offset =
           (int8_t)(parser->first_nonspace - parser->offset);
+      (*container)->as.code.fence_closed = false;
       (*container)->as.code.info = cmark_chunk_literal("");
       S_advance_offset(parser, input,
                        parser->first_nonspace + matched - parser->offset,
@@ -1355,6 +1357,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       (*container)->as.code.fence_char = 0;
       (*container)->as.code.fence_length = 0;
       (*container)->as.code.fence_offset = 0;
+      (*container)->as.code.fence_closed = false;
       (*container)->as.code.info = cmark_chunk_literal("");
     } else {
       cmark_llist *tmp;

@@ -31,6 +31,7 @@ typedef struct {
   uint8_t fence_offset;
   unsigned char fence_char;
   int8_t fenced;
+  int8_t fence_closed;
 } cmark_code;
 
 typedef struct {
